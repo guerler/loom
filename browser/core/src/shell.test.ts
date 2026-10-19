@@ -152,3 +152,56 @@ describe("currentHistoryLaunch", () => {
     expect(launch.stop).toContain("502 Bad Gateway");
   });
 });
+
+describe("a question the host hands over", () => {
+  const snapshot = (entries: unknown[]) =>
+    ({
+      type: "events",
+      events: [
+        {
+          type: "snapshot",
+          entries,
+          tools: [],
+          compactions: [],
+          inbox: [],
+          agent: {},
+          usage: { models: {}, tools: {} },
+        },
+      ],
+    }) as unknown as WorkerMessage;
+  const user = {
+    id: 1,
+    conversationId: 1,
+    kind: "pi.user",
+    model: [{ role: "user", content: "hi" }],
+  };
+  const submitted = (worker: ReturnType<typeof fakeWorker>) =>
+    worker.sent.filter((m) => m.type === "submit").map((m) => m.text);
+
+  async function mountAsking(worker: ReturnType<typeof fakeWorker>) {
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1", ask: "How many datasets?" }),
+    });
+  }
+
+  it("is asked once the conversation is ready", async () => {
+    const worker = fakeWorker();
+    await mountAsking(worker);
+    worker.say(snapshot([]));
+    worker.say({ type: "ready" } as WorkerMessage);
+    expect(submitted(worker)).toEqual(["How many datasets?"]);
+  });
+
+  it("starts a new conversation first when the history's own has turns", async () => {
+    const worker = fakeWorker();
+    await mountAsking(worker);
+    worker.say(snapshot([user]));
+    worker.say({ type: "ready" } as WorkerMessage);
+    expect(submitted(worker)).toEqual([]);
+    expect(worker.sent.some((m) => m.type === "reset")).toBe(true);
+    worker.say(snapshot([]));
+    expect(submitted(worker)).toEqual(["How many datasets?"]);
+  });
+});

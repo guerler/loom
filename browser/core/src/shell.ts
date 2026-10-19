@@ -59,6 +59,8 @@ export interface LaunchContext {
   stop?: string;
   /** Said after the ready line. */
   greeting?: string;
+  /** A question the host hands over: asked in a new conversation once the page is ready. */
+  ask?: string;
 }
 
 /** Where a conversation is saved, when the flavor saves them: absent, the page offers no Save. */
@@ -353,6 +355,18 @@ export async function mountOrbitBrowser(
   /** Said once ready, when the user chose to continue a record whose conversation is gone. */
   let continuing: string | undefined;
 
+  /** The host's question, asked once a conversation without turns is on screen. */
+  let pendingAsk = launch.ask;
+  function ask() {
+    if (pendingAsk && view.turns) {
+      startNew();
+    } else if (pendingAsk) {
+      el.input.value = pendingAsk;
+      pendingAsk = undefined;
+      submit();
+    }
+  }
+
   const agent = new AgentClient(
     (message) => {
       if (message.type === "events") {
@@ -360,6 +374,7 @@ export async function mountOrbitBrowser(
         if (afterReset && message.events.some((e) => e.type === "snapshot")) {
           info(afterReset);
           afterReset = undefined;
+          ask();
         }
         refreshControls();
       } else if (message.type === "settled") {
@@ -418,6 +433,7 @@ export async function mountOrbitBrowser(
         if (launch.greeting) {
           info(launch.greeting);
         }
+        ask();
       } else if (message.type === "recoverable") {
         // The browser kept nothing of a session here; the user says which, if any, this is.
         const line = info(
@@ -549,10 +565,13 @@ export async function mountOrbitBrowser(
   el.abort.addEventListener("click", stop);
   // loom: "reset session -- fresh start, no --continue".
   el.reset.addEventListener("click", () => {
-    if (busy || !ready) {
-      return;
+    if (!busy && ready) {
+      startNew();
     }
-    // A new conversation; the old one stays, saved or not, and its record on Galaxy too.
+  });
+
+  /** A new conversation; the old one stays, saved or not, and its record on Galaxy too. */
+  function startNew() {
     savedId = undefined;
     sessions?.savedState(true);
     el.artifactContent.innerHTML = "";
@@ -560,7 +579,7 @@ export async function mountOrbitBrowser(
       "Started a new conversation. The previous one can't be reopened here unless you saved it; " +
       "its notebook is unchanged.";
     agent.reset();
-  });
+  }
   el.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
