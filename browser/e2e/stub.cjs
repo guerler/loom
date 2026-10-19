@@ -254,7 +254,7 @@ const escapeAttr = (text) =>
 // data-incoming, the same plugin href, so a built app resolves Pyodide the way it does
 // in a deployment rather than from the dev server. VisualizationDisplay.vue hands a plugin
 // opened on a dataset `{ dataset_id }`; GalaxyAI's chat hands it `{}`, `{ exchange_id }` for a
-// saved chat, or `{ question }`.
+// saved chat, or `{ question }`; with `host=none`, nothing, as a host that does not speak it.
 function hostPage(url) {
     const params = new URL(url, "http://127.0.0.1:8099").searchParams;
     const datasetId = params.get("dataset_id");
@@ -289,15 +289,24 @@ function hostPage(url) {
             "  const brain = document.getElementById('galaxy_visualization').contentWindow;",
             "  const record = (window.__galaxyAi = { active: [], answers: [], commands: [] });",
             "  let next = 1;",
-            "  const send = (message) => brain.postMessage(message, window.location.origin);",
+            "  let port;",
+            "  const send = (message) => port.postMessage(message);",
             "  window.__command = (method, params) => { const id = 1000 + next++; record.commands.push({ id, method, params }); send({ jsonrpc: '2.0', id, method, params }); return id; };",
-            "  window.addEventListener('message', (event) => {",
-            "    const m = event.data;",
-            "    if (event.source !== brain || event.origin !== window.location.origin || m?.jsonrpc !== '2.0') return;",
-            `    if (m.method === 'initialize') send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, hostInfo: { name: 'stub', version: '0' }, capabilities: { chat: {} } } });`,
-            `    else if (m.method === 'initialized') window.__command(${JSON.stringify(initial.method)}, ${JSON.stringify(initial.params)});`,
+            "  const receive = (m) => {",
+            `    if (m.method === 'initialized') window.__command(${JSON.stringify(initial.method)}, ${JSON.stringify(initial.params)});`,
             "    else if (m.method === 'chat/activeChanged') record.active.push(m.params.exchange_id);",
             "    else if (m.id !== undefined && !m.method) record.answers.push(m);",
+            "  };",
+            // The handshake on the window, answered into the frame with the session's port. WebKit
+            // names this window as the source of some of the frame's messages.
+            // `host=none`: a frame host that does not speak the protocol, as a visualization's.
+            `  if (${params.get("host") !== "none"}) window.addEventListener('message', (event) => {`,
+            "    const m = event.data;",
+            "    if ((event.source !== brain && event.source !== window) || event.origin !== window.location.origin || m?.jsonrpc !== '2.0' || m.method !== 'initialize') return;",
+            "    const channel = new MessageChannel();",
+            "    port = channel.port1;",
+            "    port.onmessage = (e) => receive(e.data);",
+            `    brain.postMessage({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, hostInfo: { name: 'stub', version: '0' }, capabilities: { chat: {} } } }, window.location.origin, [channel.port2]);`,
             "  });",
             "  const attr = plugin.entry_point.attr;",
             "  const script = doc.createElement('script');",

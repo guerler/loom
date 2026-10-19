@@ -165,15 +165,25 @@ async function main() {
     });
   }
 
-  // Mounted by GalaxyAI, Olit shows what it is told to; anywhere else, its own choice at once.
-  connection = await connectHost({
-    clientInfo: { name: PLUGIN_NAME, version: packageJson.version },
-    handlers: {
-      open: ({ exchange_id }) => show({ exchangeId: exchange_id }),
-      ask: ({ question }) => show({ question }),
-    },
-  });
-  if (!connection) {
+  // In a frame, Olit is GalaxyAI's brain and shows what it is told to; a host that does not answer
+  // is a failure to say, not a reason to run another way. On a page of its own, its own choice.
+  if (window.parent !== window) {
+    connection = await connectHost({
+      clientInfo: { name: PLUGIN_NAME, version: packageJson.version },
+      handlers: {
+        open: ({ exchange_id }) => show({ exchangeId: exchange_id }),
+        ask: ({ question }) => show({ question }),
+      },
+    }).catch((e) => {
+      const line = document.createElement("p");
+      line.setAttribute("role", "alert");
+      line.textContent =
+        `Olit could not connect to GalaxyAI (${String((e as Error)?.message ?? e)}). ` +
+        "Reload the page to try again.";
+      container.replaceChildren(line);
+      return null;
+    });
+  } else {
     show({});
   }
 }

@@ -6,6 +6,7 @@ app/src/renderer in the same repo, so there is no copy left to drift.
 
 import hashlib
 import json
+import os
 import pathlib
 import sys
 
@@ -93,8 +94,31 @@ def lock(argv: list[str]) -> int:
     return 1
 
 
+# GalaxyAI's brain protocol: Galaxy holds the contract, and Olit, one brain for it, a copy.
+CONTRACT = ROOT / "olit" / "src" / "brain" / "conformance.json"
+GALAXY_CONTRACT = pathlib.Path("client/src/components/GalaxyAI/brain/conformance.json")
+
+
+def brain(argv: list[str]) -> int:
+    """The brain protocol's contract must say what Galaxy's does, when a Galaxy checkout is at hand:
+    GALAXY_CHECKOUT, or ~/galaxy beside the loom repo. Compared as JSON, so formatting may differ."""
+    galaxy = pathlib.Path(os.environ.get("GALAXY_CHECKOUT", ROOT.parents[1] / "galaxy")) / GALAXY_CONTRACT
+    if not galaxy.exists():
+        print(f"no {galaxy}; the brain protocol's contract is not compared with Galaxy's")
+        return 0
+    if json.loads(CONTRACT.read_text()) == json.loads(galaxy.read_text()):
+        print(f"brain protocol contract matches {galaxy}")
+        return 0
+    print(
+        f"olit/src/brain/conformance.json differs from {galaxy}.\n"
+        "Galaxy owns the brain protocol: change it there, copy the contract here, and bring\n"
+        "protocol.ts, jsonrpc.ts and connect.ts along until the replays pass."
+    )
+    return 1
+
+
 def main(argv: list[str]) -> int:
-    return lock(argv) | skills(argv)
+    return lock(argv) | skills(argv) | brain(argv)
 
 
 if __name__ == "__main__":
