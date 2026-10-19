@@ -262,15 +262,16 @@ function hostPage(url) {
     const question = params.get("question");
     const incoming = {
         root: "http://127.0.0.1:8099/",
-        visualization_config: exchangeId
-            ? { exchange_id: exchangeId }
-            : question
-              ? { question }
-              : datasetId
-                ? { dataset_id: datasetId }
-                : {},
+        visualization_config: datasetId ? { dataset_id: datasetId } : {},
         visualization_plugin: pluginDict(),
     };
+    // GalaxyAI's first command once the brain has initialized: a saved chat, a question, or the
+    // brain's own choice.
+    const initial = exchangeId
+        ? { method: "chat/open", params: { exchange_id: exchangeId } }
+        : question
+          ? { method: "chat/ask", params: { question } }
+          : { method: "chat/open", params: {} };
     if (params.get("frame")) {
         // As Galaxy's VisualizationFrame.vue mounts a plugin: it asks the plugin API for the
         // entry point, then fills an iframe without a src, whose location stays about:blank.
@@ -282,6 +283,22 @@ function hostPage(url) {
             "  app.id = 'app';",
             `  app.setAttribute('data-incoming', JSON.stringify({ ...${JSON.stringify(incoming)}, root: window.location.origin + '/', visualization_plugin: plugin }));`,
             "  doc.body.appendChild(app);",
+            // GalaxyAI's side of the brain protocol, written plainly: answer initialize, give the
+            // initial command once initialized, record what the brain reports, and let a drive give
+            // commands later through window.__command.
+            "  const brain = document.getElementById('galaxy_visualization').contentWindow;",
+            "  const record = (window.__galaxyAi = { active: [], answers: [], commands: [] });",
+            "  let next = 1;",
+            "  const send = (message) => brain.postMessage(message, window.location.origin);",
+            "  window.__command = (method, params) => { const id = 1000 + next++; record.commands.push({ id, method, params }); send({ jsonrpc: '2.0', id, method, params }); return id; };",
+            "  window.addEventListener('message', (event) => {",
+            "    const m = event.data;",
+            "    if (event.source !== brain || event.origin !== window.location.origin || m?.jsonrpc !== '2.0') return;",
+            `    if (m.method === 'initialize') send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, hostInfo: { name: 'stub', version: '0' }, capabilities: { chat: {} } } });`,
+            `    else if (m.method === 'initialized') window.__command(${JSON.stringify(initial.method)}, ${JSON.stringify(initial.params)});`,
+            "    else if (m.method === 'chat/activeChanged') record.active.push(m.params.exchange_id);",
+            "    else if (m.id !== undefined && !m.method) record.answers.push(m);",
+            "  });",
             "  const attr = plugin.entry_point.attr;",
             "  const script = doc.createElement('script');",
             "  script.type = attr.type || 'module';",

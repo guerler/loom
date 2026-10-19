@@ -5,10 +5,13 @@ import {
   mountOrbitBrowser,
   type Galaxy,
   type LaunchContext,
+  type OrbitBrowserHandle,
 } from "@galaxyproject/orbit-browser";
+import packageJson from "../package.json";
 import { OLIT_ARTIFACTS } from "./artifacts/renderers";
 import { OLIT_BRAND } from "./brand";
-import { parseIncoming, type OlitIncoming } from "./incoming";
+import { connectHost, type HostConnection } from "./brain/connect";
+import { parseIncoming } from "./incoming";
 import {
   reportSavedState,
   savedSessions,
@@ -73,12 +76,21 @@ async function held(galaxy: Galaxy, id: string, chat: SavedChat): Promise<Launch
   return context;
 }
 
+/** What GalaxyAI asked to show: a saved chat, a question, or, with neither, Olit's own choice. */
+interface Intent {
+  exchangeId?: string;
+  question?: string;
+}
+
 /**
- * The saved chat GalaxyAI opened continues; otherwise the history's own conversation. A question
- * GalaxyAI handed over is asked in a new conversation once it is ready.
+ * The saved chat GalaxyAI opened continues; otherwise the history's own conversation, on the dataset
+ * Olit was launched on. A question GalaxyAI handed over is asked in a new conversation once ready.
  */
-async function launch(galaxy: Galaxy, incoming: OlitIncoming): Promise<LaunchContext> {
-  const { exchangeId, question } = incoming;
+async function launch(
+  galaxy: Galaxy,
+  { exchangeId, question }: Intent,
+  datasetId: string | undefined,
+): Promise<LaunchContext> {
   let problem: string | undefined;
   let chat: SavedChat | null = null;
   if (exchangeId) {
@@ -96,7 +108,7 @@ async function launch(galaxy: Galaxy, incoming: OlitIncoming): Promise<LaunchCon
   } else if (chat) {
     context = await held(galaxy, exchangeId!, chat);
   } else {
-    context = await fresh(galaxy, incoming.datasetId);
+    context = await fresh(galaxy, datasetId);
   }
   if (problem) {
     context.savedProblem =
@@ -117,29 +129,53 @@ async function main() {
 
   const incoming = parseIncoming(container);
   const base = isDev() ? "" : `static/plugins/visualizations/${PLUGIN_NAME}/`;
-  // Galaxy's client is the shell's, handed over at launch, which comes before any save.
-  let saved: SavedSessions | undefined;
-  await mountOrbitBrowser(container, {
-    galaxyRoot: incoming.root,
-    datasetId: incoming.datasetId,
-    galaxyChatUrl: `${incoming.root}api/plugins/${PLUGIN_NAME}`,
-    pyodideURL: new URL(`${incoming.root}${base}static/pyodide`, document.baseURI).href,
-    createWorker: () => new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
-    ...OLIT_ARTIFACTS,
-    brand: OLIT_BRAND,
-    launch: (galaxy) => {
-      saved = savedSessions(galaxy);
-      return launch(galaxy, incoming);
-    },
-    sessions: {
-      save: (document, id) => saved!.save(document, id),
-      savedState: reportSavedState,
-      savedNote: "Saved. Open it from GalaxyAI's chats on any device.",
-      label: "Save this conversation to GalaxyAI's chats to reopen it on any device",
-      keepHint: "Save it to GalaxyAI's chats to keep it.",
-      reopenHint: "To reopen a saved conversation, open it from GalaxyAI's chats.",
+  let connection: HostConnection | null = null;
+  let mounted: OrbitBrowserHandle | undefined;
+  let mounting: Promise<void> = Promise.resolve();
+
+  /** Mount the shell anew for `intent`, once the mount before it is done and disposed. */
+  function show(intent: Intent) {
+    mounting = mounting.then(async () => {
+      mounted?.dispose();
+      // Galaxy's client is the shell's, handed over at launch, which comes before any save.
+      let saved: SavedSessions | undefined;
+      mounted = await mountOrbitBrowser(container, {
+        galaxyRoot: incoming.root,
+        datasetId: incoming.datasetId,
+        galaxyChatUrl: `${incoming.root}api/plugins/${PLUGIN_NAME}`,
+        pyodideURL: new URL(`${incoming.root}${base}static/pyodide`, document.baseURI).href,
+        createWorker: () => new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
+        ...OLIT_ARTIFACTS,
+        brand: OLIT_BRAND,
+        launch: (galaxy) => {
+          saved = savedSessions(galaxy);
+          return launch(galaxy, intent, incoming.datasetId);
+        },
+        sessions: {
+          save: (document, id) => saved!.save(document, id),
+          // GalaxyAI learns of saves from the chat shown; a visualization host from this report.
+          savedState: (state) => (connection ? undefined : reportSavedState(state)),
+          active: (id) => connection?.activeChanged(id),
+          savedNote: "Saved. Open it from GalaxyAI's chats on any device.",
+          label: "Save this conversation to GalaxyAI's chats to reopen it on any device",
+          keepHint: "Save it to GalaxyAI's chats to keep it.",
+          reopenHint: "To reopen a saved conversation, open it from GalaxyAI's chats.",
+        },
+      });
+    });
+  }
+
+  // Mounted by GalaxyAI, Olit shows what it is told to; anywhere else, its own choice at once.
+  connection = await connectHost({
+    clientInfo: { name: PLUGIN_NAME, version: packageJson.version },
+    handlers: {
+      open: ({ exchange_id }) => show({ exchangeId: exchange_id }),
+      ask: ({ question }) => show({ question }),
     },
   });
+  if (!connection) {
+    show({});
+  }
 }
 
 void main();

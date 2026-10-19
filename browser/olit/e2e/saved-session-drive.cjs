@@ -1,7 +1,8 @@
-// A saved Olit session, opened again from GalaxyAI's chat list on another machine: GalaxyAI hands
-// the plugin `{ exchange_id }`. The conversation must come back as saved, and saving it again must
-// replace that chat, not add another. A chat GalaxyAI held opens from its turns and saves anew, and
-// a question GalaxyAI hands over is asked.
+// A saved Olit session, opened again from GalaxyAI's chat list on another machine: the stub host
+// speaks GalaxyAI's brain protocol and commands `chat/open`. The conversation must come back as
+// saved, and saving it again must replace that chat, not add another. A chat GalaxyAI held opens
+// from its turns and saves anew, a `chat/ask` is asked, a later command switches the running brain,
+// and the brain reports each chat it shows with `chat/activeChanged`.
 const playwright = require("playwright");
 const storedProvider = require("./stored-provider.cjs");
 const BROWSER = process.env.BROWSER || "chromium";
@@ -37,6 +38,7 @@ async function say(frame, text) {
 }
 
 const stored = async () => (await fetch(`${STUB}/__chats`)).json();
+const hosted = (page) => page.evaluate(() => window.__galaxyAi);
 
 /** Save once the turn has ended, and wait for the write it makes; the stub serves every drive. */
 async function save(frame) {
@@ -71,6 +73,8 @@ async function save(frame) {
         JSON.stringify(saved.writes.slice(-2)),
     );
 
+    check("the brain reports the chat a save created", (await hosted(first.page)).active.at(-1) === id, JSON.stringify((await hosted(first.page)).active));
+
     const second = await machine(browser, `${HOST}?exchange_id=${id}&frame=1`);
     check("the second machine boots on the saved chat", second.ready);
     const text = await second.frame.locator("body").innerText();
@@ -81,6 +85,12 @@ async function save(frame) {
     );
     check("it is said to be the saved session", /Opened a saved conversation/.test(text));
     check("nothing claims the load failed", !/Could not open saved conversation/.test(text));
+    const secondHost = await hosted(second.page);
+    check(
+        "the command was acknowledged, and the brain reports the chat it shows",
+        secondHost.answers.some((a) => a.id === secondHost.commands[0].id && a.result) && secondHost.active.at(-1) === id,
+        JSON.stringify(secondHost),
+    );
 
     await say(second.frame, "and one more turn");
     const after = await save(second.frame);
@@ -110,6 +120,21 @@ async function save(frame) {
         JSON.stringify(continued.writes.slice(-2)),
     );
 
+    // A later command switches the running brain to another chat, without reloading the frame.
+    const marker = await held.page.evaluate(() => (window.__marker = Math.random()));
+    await held.page.evaluate((chatId) => window.__command("chat/open", { exchange_id: chatId }), id);
+    const switched = await held.frame
+        .locator("text=and one more turn")
+        .first()
+        .waitFor({ timeout: 60000 })
+        .then(() => true, () => false);
+    const afterSwitch = await hosted(held.page);
+    check(
+        "a later chat/open switches the running brain, and the brain reports it",
+        switched && afterSwitch.active.at(-1) === id && (await held.page.evaluate(() => window.__marker)) === marker,
+        JSON.stringify(afterSwitch.active),
+    );
+
     // A chat Galaxy does not give this user: another user's, or one deleted.
     const missing = await machine(browser, `${HOST}?exchange_id=gone&frame=1`);
     const missingText = await missing.frame.locator("body").innerText();
@@ -118,6 +143,7 @@ async function save(frame) {
         missing.ready && /Could not open saved conversation gone/.test(missingText),
         missingText.replace(/\s+/g, " ").slice(0, 300),
     );
+    check("the brain reports that it shows no saved chat", (await hosted(missing.page)).active.at(-1) === null);
 
     // A question GalaxyAI hands over, asked in a new conversation.
     const asked = await machine(browser, `${HOST}?question=${encodeURIComponent("count my datasets please")}&frame=1`);

@@ -76,6 +76,11 @@ export interface SessionStore {
   keepHint?: string;
   /** Appended when the browser keeps nothing for this history, saying where saves reopen from. */
   reopenHint?: string;
+  /**
+   * Told which saved session the page shows, by its id: at launch, when a save gives it an id, and
+   * null when a new conversation is not saved yet.
+   */
+  active?(id: string | null): void;
 }
 
 export interface OrbitBrowserOptions {
@@ -205,6 +210,13 @@ export async function mountOrbitBrowser(
     return handle;
   }
   let savedId = launch.saved?.id;
+  /** The saved session shown from now on, said to the store when it changes. */
+  function showing(id: string | undefined) {
+    const changed = id !== savedId;
+    savedId = id;
+    if (changed) sessions?.active?.(id ?? null);
+  }
+  sessions?.active?.(savedId ?? null);
 
   const usage = mountUsageBar(container);
   mountBuildStamp(container, {
@@ -523,8 +535,9 @@ export async function mountOrbitBrowser(
     save.textContent = "Saving...";
     try {
       const document = await agent.export("");
-      savedId = await sessions!.save(document, savedId);
-      await agent.saved(savedId, document);
+      const id = await sessions!.save(document, savedId);
+      showing(id);
+      await agent.saved(id, document);
       save.textContent = "Saved";
       sessions!.savedState(true);
       info(sessions!.savedNote);
@@ -572,7 +585,7 @@ export async function mountOrbitBrowser(
 
   /** A new conversation; the old one stays, saved or not, and its record on Galaxy too. */
   function startNew() {
-    savedId = undefined;
+    showing(undefined);
     sessions?.savedState(true);
     el.artifactContent.innerHTML = "";
     afterReset =
