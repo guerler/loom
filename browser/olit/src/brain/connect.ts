@@ -28,12 +28,16 @@ export interface HostConnection {
   capabilities: Capabilities;
   /** Tell the host which saved chat is shown now, null while it is not saved. */
   activeChanged(exchangeId: string | null): void;
+  /** Tell the host whether the conversation shown has unsaved changes, if both declared `chat.unsaved`. */
+  unsavedChanged(unsaved: boolean): void;
   request<T = unknown>(method: string, params?: object): Promise<T>;
   close(): void;
 }
 
 export interface ConnectOptions {
   clientInfo: Info;
+  /** What this brain takes part in; `chat` at least. */
+  capabilities?: Capabilities;
   handlers: BrainHandlers;
   /** How long to wait for the host's answer to `initialize`. */
   timeoutMs?: number;
@@ -119,7 +123,7 @@ export async function connectHost(options: ConnectOptions): Promise<HostConnecti
     {
       protocolVersion: PROTOCOL_VERSION,
       clientInfo: options.clientInfo,
-      capabilities: { chat: {} },
+      capabilities: options.capabilities ?? { chat: {} },
     },
     options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   );
@@ -140,12 +144,18 @@ export async function connectHost(options: ConnectOptions): Promise<HostConnecti
       },
     });
     port.onmessage = (event) => peer.receive(event.data);
+    const reportsUnsaved = !!(
+      options.capabilities?.chat?.unsaved && result.capabilities.chat?.unsaved
+    );
     peer.notify(METHODS.initialized);
     connection = {
       host: result.hostInfo,
       capabilities: result.capabilities,
       activeChanged: (exchangeId) =>
         peer.notify(METHODS.chatActiveChanged, { exchange_id: exchangeId }),
+      unsavedChanged: (unsaved) => {
+        if (reportsUnsaved) peer.notify(METHODS.chatUnsavedChanged, { unsaved });
+      },
       request: (method, params) => peer.request(method, params),
       close: () => {
         peer.close("The brain closed the connection.");

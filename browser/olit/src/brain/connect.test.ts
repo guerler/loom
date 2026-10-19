@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { connectHost, type HostConnection } from "./connect";
+import type { Capabilities } from "./protocol";
 import { PROTOCOL_VERSION } from "./protocol";
 import { flush, mockHost } from "./testing";
 
@@ -10,11 +11,16 @@ afterEach(() => {
   connections = [];
 });
 
-async function connect(host: ReturnType<typeof mockHost>, timeoutMs = 100) {
+async function connect(
+  host: ReturnType<typeof mockHost>,
+  timeoutMs = 100,
+  capabilities: Capabilities = { chat: {} },
+) {
   const open = vi.fn();
   const ask = vi.fn();
   const connection = await connectHost({
     clientInfo: { name: "olit", version: "test" },
+    capabilities,
     handlers: { open, ask },
     parent: host.parent,
     timeoutMs,
@@ -159,5 +165,23 @@ describe("a connection", () => {
       error: { code: -32601, message: "Method not found: ui/navigate" },
     });
     await expect(navigated).rejects.toMatchObject({ code: -32601 });
+  });
+
+  it("reports unsaved changes only when both sides declared them", async () => {
+    const both = mockHost("galaxy", { chat: { unsaved: {} } });
+    const reporting = await connect(both, 100, { chat: { unsaved: {} } });
+    reporting.connection.unsavedChanged(true);
+    const hostless = mockHost("galaxy", { chat: {} });
+    const unheard = await connect(hostless, 100, { chat: { unsaved: {} } });
+    unheard.connection.unsavedChanged(true);
+    const quiet = mockHost("galaxy", { chat: { unsaved: {} } });
+    const undeclared = await connect(quiet, 100);
+    undeclared.connection.unsavedChanged(true);
+    await flush();
+    expect(both.received.slice(2)).toEqual([
+      { jsonrpc: "2.0", method: "chat/unsavedChanged", params: { unsaved: true } },
+    ]);
+    expect(hostless.received.slice(2)).toEqual([]);
+    expect(quiet.received.slice(2)).toEqual([]);
   });
 });

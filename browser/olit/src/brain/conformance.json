@@ -1,12 +1,13 @@
 {
-  "about": "GalaxyAI's brain protocol (protocol.ts) as wire transcripts. Each session starts with the handshake on the window: the brain's initialize and the host's answer into the brain's frame, which transfers a MessagePort when it is a result ('port': true). Every later message goes over that port. 'checks' names the sides whose tests replay the session: a side's own messages are expected from it, the other side's are given to it. Errors match by code.",
+  "about": "GalaxyAI's brain protocol (protocol.ts) as wire transcripts. Each session starts with the handshake on the window: the brain's initialize and the host's answer into the brain's frame, which transfers a MessagePort when it is a result ('port': true). Every later message goes over that port. 'checks' names the sides whose tests replay the session: a side's own messages are expected from it, the other side's are given to it. Errors match by code. A brain's chat/unsavedChanged goes only to a host that declared chat.unsaved.",
   "protocolVersion": "2026-10-19",
   "methods": {
     "initialize": "initialize",
     "initialized": "initialized",
     "chatOpen": "chat/open",
     "chatAsk": "chat/ask",
-    "chatActiveChanged": "chat/activeChanged"
+    "chatActiveChanged": "chat/activeChanged",
+    "chatUnsavedChanged": "chat/unsavedChanged"
   },
   "errors": {
     "INVALID_REQUEST": -32600,
@@ -14,8 +15,14 @@
     "INVALID_PARAMS": -32602,
     "INTERNAL_ERROR": -32603
   },
-  "hostInfo": { "name": "galaxy", "version": "test" },
-  "clientInfo": { "name": "brain", "version": "test" },
+  "hostInfo": {
+    "name": "galaxy",
+    "version": "test"
+  },
+  "clientInfo": {
+    "name": "brain",
+    "version": "test"
+  },
   "sessions": [
     {
       "name": "opens a saved chat, and the brain reports it shown",
@@ -29,8 +36,13 @@
             "method": "initialize",
             "params": {
               "protocolVersion": "2026-10-19",
-              "clientInfo": { "name": "brain", "version": "test" },
-              "capabilities": { "chat": {} }
+              "clientInfo": {
+                "name": "brain",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {}
+              }
             }
           }
         },
@@ -42,28 +54,52 @@
             "id": 1,
             "result": {
               "protocolVersion": "2026-10-19",
-              "hostInfo": { "name": "galaxy", "version": "test" },
-              "capabilities": { "chat": {} }
+              "hostInfo": {
+                "name": "galaxy",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {
+                  "unsaved": {}
+                }
+              }
             }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "method": "initialized" } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "initialized"
+          }
+        },
         {
           "from": "host",
           "message": {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "chat/open",
-            "params": { "exchange_id": "c1" }
+            "params": {
+              "exchange_id": "c1"
+            }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "id": 1, "result": {} } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {}
+          }
+        },
         {
           "from": "brain",
           "message": {
             "jsonrpc": "2.0",
             "method": "chat/activeChanged",
-            "params": { "exchange_id": "c1" }
+            "params": {
+              "exchange_id": "c1"
+            }
           }
         }
       ]
@@ -80,8 +116,13 @@
             "method": "initialize",
             "params": {
               "protocolVersion": "2026-10-19",
-              "clientInfo": { "name": "brain", "version": "test" },
-              "capabilities": { "chat": {} }
+              "clientInfo": {
+                "name": "brain",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {}
+              }
             }
           }
         },
@@ -93,33 +134,230 @@
             "id": 1,
             "result": {
               "protocolVersion": "2026-10-19",
-              "hostInfo": { "name": "galaxy", "version": "test" },
-              "capabilities": { "chat": {} }
+              "hostInfo": {
+                "name": "galaxy",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {
+                  "unsaved": {}
+                }
+              }
             }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "method": "initialized" } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "initialized"
+          }
+        },
         {
           "from": "host",
-          "message": { "jsonrpc": "2.0", "id": 1, "method": "chat/open", "params": {} }
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "chat/open",
+            "params": {}
+          }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "id": 1, "result": {} } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {}
+          }
+        },
         {
           "from": "host",
           "message": {
             "jsonrpc": "2.0",
             "id": 2,
             "method": "chat/ask",
-            "params": { "question": "How many datasets?" }
+            "params": {
+              "question": "How many datasets?"
+            }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "id": 2, "result": {} } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {}
+          }
+        },
         {
           "from": "brain",
           "message": {
             "jsonrpc": "2.0",
             "method": "chat/activeChanged",
-            "params": { "exchange_id": null }
+            "params": {
+              "exchange_id": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "reports unsaved changes: once after initialized, then as the conversation shown is changed, saved, and replaced",
+      "checks": ["host", "brain"],
+      "messages": [
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+              "protocolVersion": "2026-10-19",
+              "clientInfo": {
+                "name": "brain",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {
+                  "unsaved": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "from": "host",
+          "port": true,
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+              "protocolVersion": "2026-10-19",
+              "hostInfo": {
+                "name": "galaxy",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {
+                  "unsaved": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "initialized"
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "chat/unsavedChanged",
+            "params": {
+              "unsaved": false
+            }
+          }
+        },
+        {
+          "from": "host",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "chat/open",
+            "params": {
+              "exchange_id": "c1"
+            }
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {}
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "chat/activeChanged",
+            "params": {
+              "exchange_id": "c1"
+            }
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "chat/unsavedChanged",
+            "params": {
+              "unsaved": true
+            }
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "chat/unsavedChanged",
+            "params": {
+              "unsaved": false
+            }
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "chat/unsavedChanged",
+            "params": {
+              "unsaved": true
+            }
+          }
+        },
+        {
+          "from": "host",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "chat/open",
+            "params": {
+              "exchange_id": "c2"
+            }
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {}
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "chat/unsavedChanged",
+            "params": {
+              "unsaved": false
+            }
+          }
+        },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "chat/activeChanged",
+            "params": {
+              "exchange_id": "c2"
+            }
           }
         }
       ]
@@ -136,8 +374,13 @@
             "method": "initialize",
             "params": {
               "protocolVersion": "2026-10-19",
-              "clientInfo": { "name": "brain", "version": "test" },
-              "capabilities": { "chat": {} }
+              "clientInfo": {
+                "name": "brain",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {}
+              }
             }
           }
         },
@@ -149,22 +392,47 @@
             "id": 1,
             "result": {
               "protocolVersion": "2026-10-19",
-              "hostInfo": { "name": "galaxy", "version": "test" },
-              "capabilities": { "chat": {}, "example": {} }
+              "hostInfo": {
+                "name": "galaxy",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {
+                  "unsaved": {}
+                },
+                "example": {}
+              }
             }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "method": "initialized" } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "initialized"
+          }
+        },
         {
           "from": "brain",
           "message": {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "example/echo",
-            "params": { "text": "hello" }
+            "params": {
+              "text": "hello"
+            }
           }
         },
-        { "from": "host", "message": { "jsonrpc": "2.0", "id": 1, "result": { "text": "hello" } } }
+        {
+          "from": "host",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+              "text": "hello"
+            }
+          }
+        }
       ]
     },
     {
@@ -179,8 +447,13 @@
             "method": "initialize",
             "params": {
               "protocolVersion": "2026-10-19",
-              "clientInfo": { "name": "brain", "version": "test" },
-              "capabilities": { "chat": {} }
+              "clientInfo": {
+                "name": "brain",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {}
+              }
             }
           }
         },
@@ -192,22 +465,46 @@
             "id": 1,
             "result": {
               "protocolVersion": "2026-10-19",
-              "hostInfo": { "name": "galaxy", "version": "test" },
-              "capabilities": { "chat": {} }
+              "hostInfo": {
+                "name": "galaxy",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {
+                  "unsaved": {}
+                }
+              }
             }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "method": "initialized" } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "initialized"
+          }
+        },
         {
           "from": "brain",
           "message": {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "ui/navigate",
-            "params": { "path": "/" }
+            "params": {
+              "path": "/"
+            }
           }
         },
-        { "from": "host", "message": { "jsonrpc": "2.0", "id": 1, "error": { "code": -32601 } } }
+        {
+          "from": "host",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+              "code": -32601
+            }
+          }
+        }
       ]
     },
     {
@@ -222,8 +519,13 @@
             "method": "initialize",
             "params": {
               "protocolVersion": "2026-10-19",
-              "clientInfo": { "name": "brain", "version": "test" },
-              "capabilities": { "chat": {} }
+              "clientInfo": {
+                "name": "brain",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {}
+              }
             }
           }
         },
@@ -235,27 +537,65 @@
             "id": 1,
             "result": {
               "protocolVersion": "2026-10-19",
-              "hostInfo": { "name": "galaxy", "version": "test" },
-              "capabilities": { "chat": {} }
+              "hostInfo": {
+                "name": "galaxy",
+                "version": "test"
+              },
+              "capabilities": {
+                "chat": {
+                  "unsaved": {}
+                }
+              }
             }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "method": "initialized" } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "method": "initialized"
+          }
+        },
         {
           "from": "host",
-          "message": { "jsonrpc": "2.0", "id": 1, "method": "context/changed", "params": {} }
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "context/changed",
+            "params": {}
+          }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "id": 1, "error": { "code": -32601 } } },
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+              "code": -32601
+            }
+          }
+        },
         {
           "from": "host",
           "message": {
             "jsonrpc": "2.0",
             "id": 2,
             "method": "chat/ask",
-            "params": { "question": "" }
+            "params": {
+              "question": ""
+            }
           }
         },
-        { "from": "brain", "message": { "jsonrpc": "2.0", "id": 2, "error": { "code": -32602 } } }
+        {
+          "from": "brain",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "error": {
+              "code": -32602
+            }
+          }
+        }
       ]
     },
     {
@@ -268,10 +608,24 @@
             "jsonrpc": "2.0",
             "id": 1,
             "method": "initialize",
-            "params": { "protocolVersion": "2026-10-19", "capabilities": { "chat": {} } }
+            "params": {
+              "protocolVersion": "2026-10-19",
+              "capabilities": {
+                "chat": {}
+              }
+            }
           }
         },
-        { "from": "host", "message": { "jsonrpc": "2.0", "id": 1, "error": { "code": -32602 } } }
+        {
+          "from": "host",
+          "message": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+              "code": -32602
+            }
+          }
+        }
       ]
     }
   ]

@@ -287,7 +287,7 @@ function hostPage(url) {
             // initial command once initialized, record what the brain reports, and let a drive give
             // commands later through window.__command.
             "  const brain = document.getElementById('galaxy_visualization').contentWindow;",
-            "  const record = (window.__galaxyAi = { active: [], answers: [], commands: [] });",
+            "  const record = (window.__galaxyAi = { active: [], answers: [], commands: [], unsaved: [] });",
             "  let next = 1;",
             "  let port;",
             "  const send = (message) => port.postMessage(message);",
@@ -295,6 +295,7 @@ function hostPage(url) {
             "  const receive = (m) => {",
             `    if (m.method === 'initialized') window.__command(${JSON.stringify(initial.method)}, ${JSON.stringify(initial.params)});`,
             "    else if (m.method === 'chat/activeChanged') record.active.push(m.params.exchange_id);",
+            "    else if (m.method === 'chat/unsavedChanged') record.unsaved.push(m.params.unsaved);",
             "    else if (m.id !== undefined && !m.method) record.answers.push(m);",
             "  };",
             // The handshake on the window, answered into the frame with the session's port. WebKit
@@ -306,7 +307,7 @@ function hostPage(url) {
             "    const channel = new MessageChannel();",
             "    port = channel.port1;",
             "    port.onmessage = (e) => receive(e.data);",
-            `    brain.postMessage({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, hostInfo: { name: 'stub', version: '0' }, capabilities: { chat: {} } } }, window.location.origin, [channel.port2]);`,
+            `    brain.postMessage({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, hostInfo: { name: 'stub', version: '0' }, capabilities: { chat: { unsaved: {} } } } }, window.location.origin, [channel.port2]);`,
             "  });",
             "  const attr = plugin.entry_point.attr;",
             "  const script = doc.createElement('script');",

@@ -564,6 +564,8 @@ export async function mountOrbitBrowser(
     el.input.style.height = "auto";
     // Busy from the click: the run starts once the worker has stored the message.
     setBusy(true);
+    // The conversation changes from the moment it is asked, not when the answer ends.
+    sessions?.savedState(false);
     chat.showThinking();
     agent.submit(text);
   }

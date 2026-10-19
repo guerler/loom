@@ -29,6 +29,7 @@ describe("the brain, replaying the contract's sessions", () => {
     let connection: HostConnection | undefined;
     const connecting = connectHost({
       clientInfo: contract.clientInfo,
+      capabilities: (session.messages[0]!.message as any).params.capabilities,
       handlers: { open: () => {}, ask: () => {} },
       parent,
     }).then((given) => (connection = given));
@@ -67,6 +68,8 @@ describe("the brain, replaying the contract's sessions", () => {
         // by itself: initialize and initialized as it connects, and its answers.
         if (message.method === contract.methods.chatActiveChanged) {
           connection!.activeChanged(message.params.exchange_id);
+        } else if (message.method === contract.methods.chatUnsavedChanged) {
+          connection!.unsavedChanged(message.params.unsaved);
         } else if (message.method && message.id !== undefined && message.method !== "initialize") {
           outcomes.set(
             message.id,

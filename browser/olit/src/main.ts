@@ -132,11 +132,21 @@ async function main() {
   let connection: HostConnection | null = null;
   let mounted: OrbitBrowserHandle | undefined;
   let mounting: Promise<void> = Promise.resolve();
+  /** What GalaxyAI was last told of unsaved changes; it hears only of a change. */
+  let unsaved: boolean | undefined;
+  function reportUnsaved(value: boolean) {
+    if (value !== unsaved) {
+      unsaved = value;
+      connection?.unsavedChanged(value);
+    }
+  }
 
   /** Mount the shell anew for `intent`, once the mount before it is done and disposed. */
   function show(intent: Intent) {
     mounting = mounting.then(async () => {
       mounted?.dispose();
+      // The conversation about to be shown has nothing unsaved yet.
+      reportUnsaved(false);
       // Galaxy's client is the shell's, handed over at launch, which comes before any save.
       let saved: SavedSessions | undefined;
       mounted = await mountOrbitBrowser(container, {
@@ -153,8 +163,7 @@ async function main() {
         },
         sessions: {
           save: (document, id) => saved!.save(document, id),
-          // GalaxyAI learns of saves from the chat shown; a visualization host from this report.
-          savedState: (state) => (connection ? undefined : reportSavedState(state)),
+          savedState: (state) => (connection ? reportUnsaved(!state) : reportSavedState(state)),
           active: (id) => connection?.activeChanged(id),
           savedNote: "Saved. Open it from GalaxyAI's chats on any device.",
           label: "Save this conversation to GalaxyAI's chats to reopen it on any device",
@@ -170,6 +179,7 @@ async function main() {
   if (window.parent !== window) {
     connection = await connectHost({
       clientInfo: { name: PLUGIN_NAME, version: packageJson.version },
+      capabilities: { chat: { unsaved: {} } },
       handlers: {
         open: ({ exchange_id }) => show({ exchangeId: exchange_id }),
         ask: ({ question }) => show({ question }),
@@ -183,6 +193,8 @@ async function main() {
       container.replaceChildren(line);
       return null;
     });
+    // Said once right after the handshake: nothing is shown yet, so nothing is unsaved.
+    reportUnsaved(false);
   } else {
     show({});
   }

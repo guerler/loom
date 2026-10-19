@@ -1,7 +1,8 @@
 // GalaxyAI's brain protocol around Olit's lifecycle, against the stub's host page. A frame whose host
 // never answers says so rather than start on its own; the chat shown is reported from a click as
 // from anywhere (WebKit names the parent as the sender of such messages, which the session's port
-// makes moot); and a command that lands mid-answer leaves the question, not half an answer, and no
+// makes moot); unsaved changes are reported after the handshake and through asking, saving, a new
+// conversation and another chat opened; and a command that lands mid-answer leaves the question, not half an answer, and no
 // run that resumes by itself. BROWSER=firefox or webkit runs it there; WebKit keeps no
 // conversations in the browser, so the mid-answer part runs in the other two.
 const playwright = require("playwright");
@@ -56,20 +57,43 @@ const ready = (frame) =>
         said && !/Ready\./.test(silentText), silentText.replace(/\s+/g, " ").slice(0, 200));
 
     await fetch(`${STUB}/__script?name=plain`);
+    // A chat GalaxyAI held, for the host to open over a conversation with unsaved changes.
+    const turns = [{ query: "Which aligner?", response: "HISAT2." }];
+    await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
     const { page, frame } = await machine(browser, `${HOST}?dataset_id=dlife&frame=1`);
     check("the hosted brain boots", await ready(frame));
+    const unsaved = async () => (await hosted(page)).unsaved;
+    check("nothing unsaved is reported once, right after the handshake", JSON.stringify(await unsaved()) === "[false]", JSON.stringify(await unsaved()));
     await frame.locator("#input").fill("remember this");
     await frame.locator("#send-btn").click();
+    check("asking a question reports unsaved changes", await until(async () => (await unsaved()).at(-1) === true), JSON.stringify(await unsaved()));
     await frame.locator("text=Noted.").last().waitFor({ timeout: 60000 });
     await frame.locator("#save-btn:not([disabled])").click({ timeout: 30000 });
     const saved = await until(async () => typeof (await hosted(page)).active.at(-1) === "string");
     const savedId = (await hosted(page)).active.at(-1);
     check("a save is reported", saved, JSON.stringify((await hosted(page)).active));
+    check("and leaves nothing unsaved", await until(async () => (await unsaved()).at(-1) === false), JSON.stringify(await unsaved()));
+
+    // Modified again, then replaced by another chat the host opens: the new one has nothing unsaved.
+    await frame.locator("#input").fill("one more thing");
+    await frame.locator("#send-btn").click();
+    await frame.locator("text=Noted.").nth(1).waitFor({ timeout: 60000 });
+    check("a saved chat asked again has unsaved changes", (await unsaved()).at(-1) === true, JSON.stringify(await unsaved()));
+    await page.evaluate(() => window.__command("chat/open", { exchange_id: "g1" }));
+    await ready(frame);
+    check("another chat opened shows with nothing unsaved",
+        await until(async () => (await hosted(page)).active.at(-1) === "g1" && (await unsaved()).at(-1) === false),
+        JSON.stringify(await hosted(page)));
+    check("the reports only ever said changes", (await unsaved()).every((v, i, all) => i === 0 || v !== all[i - 1]), JSON.stringify(await unsaved()));
+    await page.evaluate((exchangeId) => window.__command("chat/open", { exchange_id: exchangeId }), savedId);
+    await until(async () => (await hosted(page)).active.at(-1) === savedId);
+    await ready(frame);
 
     // Reported from the click itself: the message WebKit gives the wrong sender.
     await frame.locator("#reset-btn").click();
-    check("a new conversation, started by a click, is reported",
-        await until(async () => (await hosted(page)).active.at(-1) === null), JSON.stringify((await hosted(page)).active));
+    check("a new conversation, started by a click, is reported, with nothing unsaved",
+        await until(async () => (await hosted(page)).active.at(-1) === null && (await unsaved()).at(-1) === false),
+        JSON.stringify(await hosted(page)));
 
     if (BROWSER !== "webkit") {
         await fetch(`${STUB}/__script?name=slow-once`);
