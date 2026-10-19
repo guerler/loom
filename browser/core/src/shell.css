@@ -81,3 +81,23 @@
 #send-btn:disabled:hover {
   opacity: 0.5;
 }
+
+/* The artifact pane on a page of its own (artifact-view.ts). */
+.artifact-view {
+  height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.artifact-view-content {
+  height: 100%;
+}
+
+.artifact-view-empty,
+.artifact-view-error {
+  margin: 16px;
+  font:
+    13px system-ui,
+    sans-serif;
+  color: #555;
+}

@@ -83,6 +83,19 @@ export interface SessionStore {
   active?(id: string | null): void;
 }
 
+/**
+ * Somewhere outside the page the artifacts can show, such as a pane the host draws apart from the
+ * chat. While it is there, the page's own pane stays empty and its button brings this one into view.
+ */
+export interface ArtifactPlace {
+  /** Whether it is there now. */
+  present(): boolean;
+  /** Show these in place of what it showed; `reveal` brings it into view, as for something new. */
+  show(artifacts: Artifact[], reveal: boolean): void;
+  /** Call `changed` whenever it comes or goes, until `signal` aborts. */
+  watch(changed: () => void, signal: AbortSignal): void;
+}
+
 export interface OrbitBrowserOptions {
   galaxyRoot: string;
   datasetId?: string;
@@ -101,6 +114,8 @@ export interface OrbitBrowserOptions {
   sessions?: SessionStore;
   /** The same brand as the flavor's worker, whose stored state the page reads under it. */
   brand?: Brand;
+  /** Where the artifacts show while it is there, in place of the page's own pane. */
+  artifactPlace?: ArtifactPlace;
 }
 
 /** The mounted page, as its host sees it. */
@@ -182,6 +197,9 @@ export async function mountOrbitBrowser(
     },
   };
   const artifactPane = mountArtifactPane(container, mounted.signal, brand);
+  const place = options.artifactPlace;
+  /** What the pane shows, wherever it shows. */
+  let shown: Artifact[] = [];
   useChatMarkdown();
   const chat = new ChatPanel(el.messages);
   /** An info line as text: the vendored panel parses it as HTML, and dataset names, ids and
@@ -267,24 +285,42 @@ export async function mountOrbitBrowser(
    * On open, the newest artifacts: a conversation that can still place a chart but shows an empty
    * pane is telling the user it lost something it did not. Live, only what a result just made.
    */
-  async function showArtifacts(artifacts: Artifact[], restored: boolean) {
-    if (!artifacts.length) return;
-    el.artifactContent.innerHTML = "";
-    try {
-      for (const artifact of restored ? paneArtifacts(artifacts) : artifacts) {
-        await renderArtifact(el.artifactContent, artifact, rootPath, galaxy);
-      }
-    } catch (e) {
-      // Fire-and-forget from the view, so a throw here would reach only the console.
-      console.error(`[${brand.id}] could not draw an artifact`, e);
-      chat.addErrorMessage(
-        `Could not show the artifact: ${briefly(String((e as Error)?.message ?? e))}`,
-      );
-      return;
+  function showArtifacts(artifacts: Artifact[], restored: boolean) {
+    if (artifacts.length) {
+      shown = restored ? paneArtifacts(artifacts) : artifacts;
+      void draw(!restored);
     }
-    // After filling, so the pane opens on something rather than on an empty frame.
-    if (!restored) artifactPane.reveal();
   }
+
+  /** Draw what the pane shows where it shows now; `reveal` opens it on them. */
+  async function draw(reveal: boolean) {
+    el.artifactContent.innerHTML = "";
+    if (place?.present()) {
+      artifactPane.elsewhere(() => place.show(shown, true));
+      place.show(shown, reveal);
+    } else {
+      artifactPane.elsewhere(null);
+      try {
+        for (const artifact of shown) {
+          await renderArtifact(el.artifactContent, artifact, rootPath, galaxy);
+        }
+      } catch (e) {
+        // Fire-and-forget from the view, so a throw here would reach only the console.
+        console.error(`[${brand.id}] could not draw an artifact`, e);
+        chat.addErrorMessage(
+          `Could not show the artifact: ${briefly(String((e as Error)?.message ?? e))}`,
+        );
+        return;
+      }
+      // After filling, so the pane opens on something rather than on an empty frame.
+      if (reveal && shown.length) artifactPane.reveal();
+    }
+  }
+  // A place that comes takes over what the pane shows, leaving the host's view where it is; one
+  // that goes hands it back, opening the pane on it, so it is still in view beside the chat.
+  place?.watch(() => void draw(!place.present() && shown.length > 0), mounted.signal);
+  // A place already there shows this conversation's artifacts, none yet, not the last one's.
+  if (place?.present()) void draw(false);
 
   const view = new ChatView(
     chat,
@@ -589,7 +625,8 @@ export async function mountOrbitBrowser(
   function startNew() {
     showing(undefined);
     sessions?.savedState(true);
-    el.artifactContent.innerHTML = "";
+    shown = [];
+    void draw(false);
     afterReset =
       "Started a new conversation. The previous one can't be reopened here unless you saved it; " +
       "its notebook is unchanged.";

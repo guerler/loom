@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { mountArtifactPane } from "./artifact-pane";
 import { LAYOUT } from "./layout";
@@ -116,5 +116,18 @@ describe("artifact pane", () => {
     expect(resizes).toBe(1);
     pane.reveal();
     expect(resizes).toBe(1);
+  });
+
+  it("while the artifacts show elsewhere, stays shut and has its button and shortcut bring them into view", () => {
+    const { container, pane } = mount(1200, false);
+    const open = vi.fn();
+    pane.elsewhere(open);
+    expect(hidden(container)).toBe(false);
+    container.querySelector<HTMLButtonElement>("#artifact-btn")!.click();
+    container.dispatchEvent(new KeyboardEvent("keydown", { key: "\\", ctrlKey: true }));
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(collapsed()).toBe(true);
+    pane.elsewhere(null);
+    expect(hidden(container)).toBe(true);
   });
 });

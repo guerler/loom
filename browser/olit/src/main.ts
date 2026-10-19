@@ -2,6 +2,7 @@
 import {
   cannotStart,
   currentHistoryLaunch,
+  mountArtifactView,
   mountOrbitBrowser,
   type Galaxy,
   type LaunchContext,
@@ -11,7 +12,8 @@ import packageJson from "../package.json";
 import { OLIT_ARTIFACTS } from "./artifacts/renderers";
 import { OLIT_BRAND } from "./brand";
 import { connectHost, type HostConnection } from "./brain/connect";
-import { parseIncoming } from "./incoming";
+import { parseIncoming, type OlitIncoming } from "./incoming";
+import { chatSide, paneSide } from "./pane-link";
 import {
   reportSavedState,
   savedSessions,
@@ -128,8 +130,27 @@ async function main() {
   }
 
   const incoming = parseIncoming(container);
+  if (incoming.view === "pane") {
+    // GalaxyAI's pane apart from the chat: the chat's frame fills it.
+    paneSide(
+      mountArtifactView(container, {
+        galaxyRoot: incoming.root,
+        ...OLIT_ARTIFACTS,
+        brand: OLIT_BRAND,
+      }),
+    );
+  } else {
+    await chat(container, incoming);
+  }
+}
+
+/** Olit's chat: GalaxyAI's brain in a frame, Olit on its own on a page of its own. */
+async function chat(container: HTMLElement, incoming: OlitIncoming) {
   const base = isDev() ? "" : `static/plugins/visualizations/${PLUGIN_NAME}/`;
+  const hosted = window.parent !== window;
   let connection: HostConnection | null = null;
+  // Hosted, the artifacts show in a pane apart while GalaxyAI has one mounted.
+  const artifactPlace = hosted ? chatSide(() => connection?.showPane()) : undefined;
   let mounted: OrbitBrowserHandle | undefined;
   let mounting: Promise<void> = Promise.resolve();
   /** What GalaxyAI was last told of unsaved changes; it hears only of a change. */
@@ -157,6 +178,7 @@ async function main() {
         createWorker: () => new Worker(new URL("./worker.ts", import.meta.url), { type: "module" }),
         ...OLIT_ARTIFACTS,
         brand: OLIT_BRAND,
+        artifactPlace,
         launch: (galaxy) => {
           saved = savedSessions(galaxy);
           return launch(galaxy, intent, incoming.datasetId);
@@ -176,10 +198,10 @@ async function main() {
 
   // In a frame, Olit is GalaxyAI's brain and shows what it is told to; a host that does not answer
   // is a failure to say, not a reason to run another way. On a page of its own, its own choice.
-  if (window.parent !== window) {
+  if (hosted) {
     connection = await connectHost({
       clientInfo: { name: PLUGIN_NAME, version: packageJson.version },
-      capabilities: { chat: { unsaved: {} } },
+      capabilities: { chat: { unsaved: {}, pane: {} } },
       handlers: {
         open: ({ exchange_id }) => show({ exchangeId: exchange_id }),
         ask: ({ question }) => show({ question }),

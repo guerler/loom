@@ -30,6 +30,8 @@ export interface HostConnection {
   activeChanged(exchangeId: string | null): void;
   /** Tell the host whether the conversation shown has unsaved changes, if both declared `chat.unsaved`. */
   unsavedChanged(unsaved: boolean): void;
+  /** Ask the host to show the brain's pane apart, if both declared `chat.pane`. */
+  showPane(): void;
   request<T = unknown>(method: string, params?: object): Promise<T>;
   close(): void;
 }
@@ -147,6 +149,7 @@ export async function connectHost(options: ConnectOptions): Promise<HostConnecti
     const reportsUnsaved = !!(
       options.capabilities?.chat?.unsaved && result.capabilities.chat?.unsaved
     );
+    const showsPane = !!(options.capabilities?.chat?.pane && result.capabilities.chat?.pane);
     peer.notify(METHODS.initialized);
     connection = {
       host: result.hostInfo,
@@ -155,6 +158,9 @@ export async function connectHost(options: ConnectOptions): Promise<HostConnecti
         peer.notify(METHODS.chatActiveChanged, { exchange_id: exchangeId }),
       unsavedChanged: (unsaved) => {
         if (reportsUnsaved) peer.notify(METHODS.chatUnsavedChanged, { unsaved });
+      },
+      showPane: () => {
+        if (showsPane) peer.notify(METHODS.chatShowPane);
       },
       request: (method, params) => peer.request(method, params),
       close: () => {

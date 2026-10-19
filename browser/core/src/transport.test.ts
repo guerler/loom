@@ -48,6 +48,7 @@ describe("the Galaxy transport", () => {
       "agent/galaxy.ts",
       "agent/runtime.ts",
       "agent/worker.ts",
+      "artifact-view.ts",
       "shell.ts",
     ]);
   });

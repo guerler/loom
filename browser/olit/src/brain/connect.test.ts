@@ -184,4 +184,16 @@ describe("a connection", () => {
     expect(hostless.received.slice(2)).toEqual([]);
     expect(quiet.received.slice(2)).toEqual([]);
   });
+
+  it("asks for the pane apart only when both sides declared it", async () => {
+    const both = mockHost("galaxy", { chat: { pane: {} } });
+    const asking = await connect(both, 100, { chat: { pane: {} } });
+    asking.connection.showPane();
+    const hostless = mockHost("galaxy", { chat: {} });
+    const unheard = await connect(hostless, 100, { chat: { pane: {} } });
+    unheard.connection.showPane();
+    await flush();
+    expect(both.received.slice(2)).toEqual([{ jsonrpc: "2.0", method: "chat/showPane" }]);
+    expect(hostless.received.slice(2)).toEqual([]);
+  });
 });

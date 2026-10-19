@@ -26,6 +26,11 @@ function writePreference(key: string, collapsed: boolean): void {
 export interface ArtifactPane {
   /** Show the pane because something was produced for it. */
   reveal(): void;
+  /**
+   * The artifacts show somewhere outside this page, which `open` brings into view: the button and
+   * the shortcut call it rather than open this pane, which stays empty. Null when they are back.
+   */
+  elsewhere(open: (() => void) | null): void;
 }
 
 /** `signal` ends what the pane attached to the container and outside it, for a page that unmounts
@@ -44,6 +49,8 @@ export function mountArtifactPane(
 
   // What the user last chose, which a narrow window overrides without overwriting.
   let preferred = readPreference(collapsedKey);
+  /** Brings the artifacts into view where they show instead, while they show elsewhere. */
+  let away: (() => void) | null = null;
 
   /** An empty pane has nothing to show, whatever the remembered preference says. */
   const empty = () => content.childElementCount === 0;
@@ -52,7 +59,7 @@ export function mountArtifactPane(
     const wasHidden = document.body.classList.contains("artifact-collapsed");
     const hide = collapsed || empty();
     document.body.classList.toggle("artifact-collapsed", hide);
-    button.classList.toggle("hidden", empty());
+    button.classList.toggle("hidden", empty() && !away);
     if (hide) {
       chatPane.style.flex = "";
     } else if (wasHidden) {
@@ -99,15 +106,19 @@ export function mountArtifactPane(
     { signal },
   );
 
-  button.addEventListener("click", () => set(!collapsed()));
+  button.addEventListener("click", () => (away ? away() : set(!collapsed())));
   container.addEventListener(
     "keydown",
     (e) => {
       const ev = e as KeyboardEvent;
       // Guarded: the button is hidden with nothing to show, so the shortcut must not open it.
-      if ((ev.ctrlKey || ev.metaKey) && ev.key === "\\" && !empty()) {
+      if ((ev.ctrlKey || ev.metaKey) && ev.key === "\\" && (away || !empty())) {
         ev.preventDefault();
-        set(!collapsed());
+        if (away) {
+          away();
+        } else {
+          set(!collapsed());
+        }
       }
     },
     { signal },
@@ -151,5 +162,9 @@ export function mountArtifactPane(
 
   return {
     reveal: () => set(false),
+    elsewhere: (open) => {
+      away = open;
+      show(narrow || preferred);
+    },
   };
 }

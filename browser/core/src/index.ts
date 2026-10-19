@@ -9,6 +9,7 @@ export {
   cannotStart,
   currentHistoryLaunch,
   mountOrbitBrowser,
+  type ArtifactPlace,
   type ArtifactRenderer,
   type ArtifactRenderers,
   type LaunchContext,
@@ -16,3 +17,4 @@ export {
   type OrbitBrowserOptions,
   type SessionStore,
 } from "./shell";
+export { mountArtifactView, type ArtifactView, type ArtifactViewOptions } from "./artifact-view";
