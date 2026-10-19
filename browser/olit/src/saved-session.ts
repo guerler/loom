@@ -1,62 +1,177 @@
-/** A saved Olit session: one Visualization whose config is the whole session document.
+/** A saved Olit session: one GalaxyAI chat, whose document is the whole session and whose turns
+ * are what Galaxy lists and shows of it.
  *
- * Saving is deliberate, as it is for any other Galaxy visualization, so a revision marks a
- * save the user asked for rather than a conversation turn.
+ * Saving is deliberate, as it was for GalaxyAI's own chats, so a save marks a point the user
+ * asked for rather than a conversation turn.
  */
 
 import {
+  HttpError,
   isSessionDocument,
+  SCHEMA,
   segment,
   type Galaxy,
   type SessionDocument,
 } from "@galaxyproject/orbit-browser";
 
-export const PLUGIN_TYPE = "olit";
+/** Recorded on each turn Galaxy keeps, naming who held the conversation. */
+export const AGENT_TYPE = "olit";
 
-/** A saved session the signed-in user does not own, which Galaxy may still show them. */
-export class NotYours extends Error {}
+type Entry = SessionDocument["entries"][number];
 
-/** Galaxy requires at least three characters and shows this in the user's visualization list. */
-export function title(document: SessionDocument): string {
-  const given = (document.session.title || "").trim();
-  return given.length >= 3 ? given : `Olit Session (${document.session.id.slice(0, 8)})`;
+/** A turn as Galaxy keeps it: what the user asked and what was answered. */
+export interface Turn {
+  query: string;
+  response: string;
+}
+
+/** A message of a chat GalaxyAI held, as `api/chat/exchange/{id}/messages` returns it. */
+export interface HeldMessage {
+  role: "user" | "assistant";
+  content: string;
+  agent_type?: string;
+  timestamp?: string | null;
+}
+
+/** A message's text: the string a user typed, or the text blocks of a reply. */
+function textOf(message: { content?: unknown }): string {
+  let text = "";
+  if (typeof message.content === "string") {
+    text = message.content;
+  } else if (Array.isArray(message.content)) {
+    text = message.content
+      .filter((block) => block?.type === "text" && typeof block.text === "string")
+      .map((block) => block.text)
+      .join("");
+  }
+  return text;
+}
+
+/** The conversation's turns: each user message, and the last text answered before the next. */
+export function turnsOf(entries: readonly Entry[]): Turn[] {
+  const turns: Turn[] = [];
+  for (const entry of entries) {
+    for (const message of entry.model ?? []) {
+      const said = textOf(message as { content?: unknown });
+      if (entry.kind === "pi.user" && message.role === "user") {
+        turns.push({ query: said, response: "" });
+      } else if (message.role === "assistant" && said.trim() && turns.length) {
+        turns[turns.length - 1]!.response = said;
+      }
+    }
+  }
+  return turns;
+}
+
+const NO_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+/**
+ * A chat GalaxyAI held, as a session Olit continues: its questions and answers, without the steps
+ * behind them, which Galaxy never stored. Each answer is from a model Olit is not, so a model
+ * continuing it reads them as plain text.
+ */
+export function heldSession(messages: readonly HeldMessage[], now = new Date()): SessionDocument {
+  const when = (message: HeldMessage) => Date.parse(message.timestamp ?? "") || now.getTime();
+  const entries: Entry[] = messages.map((message) =>
+    message.role === "user"
+      ? {
+          kind: "pi.user",
+          model: [{ role: "user", content: message.content, timestamp: when(message) }],
+        }
+      : {
+          kind: "pi.assistant",
+          model: [
+            {
+              role: "assistant",
+              content: [{ type: "text", text: message.content }],
+              api: "galaxy-ai",
+              provider: "galaxy-ai",
+              model: message.agent_type || "galaxy-ai",
+              usage: NO_USAGE,
+              stopReason: "stop",
+              timestamp: when(message),
+            },
+          ],
+        },
+  ) as Entry[];
+  const started = messages[0]?.timestamp ?? now.toISOString();
+  return {
+    olit_session: SCHEMA,
+    session: {
+      id: crypto.randomUUID(),
+      title: "",
+      createdAt: started,
+      updatedAt: started,
+      turn: messages.filter((message) => message.role === "user").length,
+      models: [{ provider: "galaxy-ai" }],
+      usage: { input: 0, output: 0, cost: null },
+    },
+    entries,
+  };
+}
+
+/** A saved chat as Olit opens it. */
+export interface SavedChat {
+  document: SessionDocument;
+  /** Saved by Olit. A chat GalaxyAI held is not replaced: saving its continuation adds a chat. */
+  olit: boolean;
 }
 
 export interface SavedSessions {
-  /**
-   * The session saved at `id`, or null if that visualization is not one of ours. Throws
-   * `NotYours` unless the signed-in user owns it.
-   */
-  load(id: string): Promise<SessionDocument | null>;
-  /** Create or update, returning the Visualization id. */
+  /** The chat saved at `id`, or null if it is neither Olit's nor one GalaxyAI held. */
+  load(id: string): Promise<SavedChat | null>;
+  /** Create, or replace the chat at `id`, returning the chat's id. */
   save(document: SessionDocument, id?: string): Promise<string>;
 }
 
 export function savedSessions(galaxy: Galaxy): SavedSessions {
+  async function create(payload: object): Promise<string> {
+    const created = await galaxy.post("api/chat/exchanges", payload);
+    return created.id;
+  }
   return {
     async load(id) {
-      const [body, user] = await Promise.all([
-        galaxy.get(`api/visualizations/${segment(id)}`),
-        galaxy.get("api/users/current"),
-      ]);
-      // Galaxy also shows a visualization shared with the user or open to anyone with its link.
-      const owner = body?.user_id;
-      if (typeof owner !== "string" || !owner || owner !== user?.id) {
-        throw new NotYours("it was not saved by the signed-in user");
+      // Galaxy answers only with the signed-in user's own chats.
+      const body = await galaxy.get(`api/chat/exchange/${segment(id)}/document`);
+      let found: SavedChat | null = null;
+      if (isSessionDocument(body?.document)) {
+        found = { document: body.document, olit: true };
+      } else if (body?.document === null) {
+        const messages: HeldMessage[] = await galaxy.get(
+          `api/chat/exchange/${segment(id)}/messages`,
+        );
+        found = { document: heldSession(messages), olit: false };
       }
-      const config = body?.latest_revision?.config;
-      return isSessionDocument(config) ? config : null;
+      return found;
     },
     async save(document, id) {
-      // Sharing stays off deliberately: a transcript carries far more than a chart
-      // config does, so `importable`, `published` and `slug` are never set here.
-      const payload = { title: title(document), config: document };
-      if (id) {
-        await galaxy.put(`api/visualizations/${segment(id)}`, payload);
-        return id;
+      const messages = turnsOf(document.entries);
+      if (!messages.length) {
+        throw new Error("there is nothing to save before the first question");
       }
-      const created = await galaxy.post("api/visualizations", { ...payload, type: PLUGIN_TYPE });
-      return created.id;
+      const payload = { agent_type: AGENT_TYPE, messages, document };
+      let saved: string;
+      if (id) {
+        // Galaxy replaces only a chat Olit saved; one it no longer has, or one GalaxyAI held,
+        // is saved as a new chat.
+        saved = await galaxy.put(`api/chat/exchange/${segment(id)}`, payload).then(
+          () => id,
+          (e) => {
+            if (e instanceof HttpError && e.status === 404) return create(payload);
+            throw e;
+          },
+        );
+      } else {
+        saved = await create(payload);
+      }
+      return saved;
     },
   };
 }

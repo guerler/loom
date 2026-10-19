@@ -72,7 +72,7 @@ olit/                     @galaxyproject/olit: files ["static"]
   vite.config.session.ts    the Node build, into dist/session.mjs (the root copies it to ../dist)
   src/main.ts               reads data-incoming and mounts the shell with Olit's options
   src/worker.ts             the worker entry: startAgentWorker(olitFlavor)
-  src/incoming.ts seed-dataset.ts saved-session.ts   launching on a dataset, saving as a visualization
+  src/incoming.ts seed-dataset.ts saved-session.ts   launching on a dataset or a GalaxyAI chat, saving as a chat
   src/artifacts/            vega-lite and visualization kinds (kinds.ts) and renderers
   src/agent/flavor.ts       olitFlavor
   src/agent/layout.ts       olitLayout: where --describe finds Olit, and olit.xml's ai_prompt

@@ -45,6 +45,10 @@ let script = "confirm";
 // Saved visualizations as Galaxy keeps them: each a type, a title and its latest revision's config.
 const visualizations = new Map();
 const visualizationWrites = [];
+// The signed-in user's GalaxyAI chats: turns Galaxy lists, and the document Olit saved, null for a
+// chat GalaxyAI held.
+const chats = new Map();
+const chatWrites = [];
 // One tool run's job, as Galaxy reports it; a drive finishes it through /__job.
 let jobState = "queued";
 // Pages as Galaxy keeps them: a page may be attached to a history (a history notebook) and listed by it.
@@ -249,25 +253,23 @@ const escapeAttr = (text) =>
 // What VisualizationFrame.vue builds in the browser, rendered here instead: the same
 // data-incoming, the same plugin href, so a built app resolves Pyodide the way it does
 // in a deployment rather than from the dev server. VisualizationDisplay.vue hands a plugin
-// opened on a dataset `{ dataset_id }` and nothing else: no history, and a title only for a
-// saved visualization.
+// opened on a dataset `{ dataset_id }`; GalaxyAI's chat hands it `{}`, `{ exchange_id }` for a
+// saved chat, or `{ question }`.
 function hostPage(url) {
     const params = new URL(url, "http://127.0.0.1:8099").searchParams;
     const datasetId = params.get("dataset_id");
-    // A saved one opens on its latest revision's config, with its id for the owner (u1).
-    const saved = visualizations.get(params.get("visualization_id"));
+    const exchangeId = params.get("exchange_id");
+    const question = params.get("question");
     const incoming = {
         root: "http://127.0.0.1:8099/",
-        visualization_config: saved
-            ? saved.latest_revision.config
-            : datasetId
-              ? { dataset_id: datasetId }
-              : {},
+        visualization_config: exchangeId
+            ? { exchange_id: exchangeId }
+            : question
+              ? { question }
+              : datasetId
+                ? { dataset_id: datasetId }
+                : {},
         visualization_plugin: pluginDict(),
-        // With `incoming_id=0` the id is only in the page's own query.
-        ...(saved && params.get("incoming_id") !== "0"
-            ? { visualization_id: saved.id, visualization_title: saved.title }
-            : {}),
     };
     if (params.get("frame")) {
         // As Galaxy's VisualizationFrame.vue mounts a plugin: it asks the plugin API for the
@@ -324,9 +326,10 @@ const server = http.createServer(async (req, res) => {
         jobState = "queued";
         rateLimited = 0;
         calls = 0;
-        for (const list of [seen, cookies, prompts, visualizationWrites]) list.length = 0;
+        for (const list of [seen, cookies, prompts, visualizationWrites, chatWrites]) list.length = 0;
         pages.clear();
         visualizations.clear();
+        chats.clear();
         return json(res, 200, { reset: true });
     }
     if (url.startsWith("/__script")) {
@@ -359,12 +362,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.startsWith("/__pages")) return json(res, 200, { pages: [...pages.values()] });
     if (url.startsWith("/__visualizations")) return json(res, 200, { visualizations: [...visualizations.values()], writes: visualizationWrites });
-    // Hand a saved visualization to another owner, or to none, as sharing it with this user leaves it.
-    if (url.startsWith("/__owner")) {
+    if (url.startsWith("/__chats")) return json(res, 200, { chats: Object.fromEntries(chats), writes: chatWrites });
+    // A chat GalaxyAI held before Olit: its turns, and no document.
+    if (url.startsWith("/__held")) {
         const params = new URL(url, "http://x").searchParams;
-        const found = visualizations.get(params.get("id"));
-        if (found) found.user_id = params.get("user_id") || undefined;
-        return json(res, 200, { owner: found?.user_id ?? null });
+        const turns = JSON.parse(params.get("turns") || "[]");
+        chats.set(params.get("id"), { agent_type: "router", messages: turns, document: null });
+        return json(res, 200, { held: params.get("id") });
     }
     if (url.startsWith("/__public")) return json(res, 200, { public: true });
 
@@ -599,6 +603,38 @@ const server = http.createServer(async (req, res) => {
         if (body.content != null) Object.assign(found, { content: body.content, content_editor: body.content });
         found.update_time = now;
         return json(res, 200, found);
+    }
+    // GalaxyAI's chats, as Galaxy keeps them: only the signed-in user's, and a replace only of a
+    // chat a plugin saved.
+    if (url.startsWith("/api/chat/exchange")) {
+        const [, , , , id, part] = url.split("?")[0].split("/");
+        if (req.method === "POST" && url.startsWith("/api/chat/exchanges")) {
+            const body = await readJson(req);
+            const created = `c${chats.size + 1}`;
+            chats.set(created, body);
+            chatWrites.push(`POST ${created}`);
+            return json(res, 200, { id: created });
+        }
+        const found = chats.get(id);
+        if (!found) return json(res, 404, { err_msg: "No accessible chat exchange found with the ID provided." });
+        if (req.method === "PUT") {
+            if (found.document === null) return json(res, 404, { err_msg: "This chat was not saved by a chat plugin." });
+            chats.set(id, await readJson(req));
+            chatWrites.push(`PUT ${id}`);
+            return json(res, 200, { id });
+        }
+        if (part === "document") return json(res, 200, { id, agent_type: found.agent_type, document: found.document });
+        if (part === "messages") {
+            const at = "2026-10-01T10:00:00";
+            return json(
+                res,
+                200,
+                found.messages.flatMap((turn) => [
+                    { role: "user", content: turn.query, timestamp: at },
+                    { role: "assistant", content: turn.response, agent_type: found.agent_type, timestamp: at },
+                ]),
+            );
+        }
     }
     if (url.startsWith("/api/visualizations")) {
         const id = url.split("?")[0].split("/")[3];

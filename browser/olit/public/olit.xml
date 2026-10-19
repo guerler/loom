@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE visualization SYSTEM "../../visualization.dtd">
-<visualization name="AI Research Assistant" embeddable="true">
+<visualization name="AI Research Assistant" embeddable="true" hidden="true">
     <description>powered by Orbit Lite</description>
     <data_sources>
         <data_source>
