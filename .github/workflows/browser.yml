@@ -86,13 +86,15 @@ jobs:
 
       - name: Resolve Playwright version
         id: pw
-        run: echo "version=$(npx --no-install playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(npx --no-install playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+          key: ${{ runner.os }}-${{ steps.pw.outputs.image }}-playwright-${{ steps.pw.outputs.version }}
 
       # Firefox and WebKit too: e2e/run-all.sh drives python-isolation in both.
       - name: Install Playwright browsers
