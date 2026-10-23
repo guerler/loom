@@ -75,9 +75,72 @@ describe("a flavor with no session store", () => {
       ...base,
       createWorker: vi.fn(),
       launch: async () => ({ stop: "stopped" }),
-      sessions: { save: async () => "id", savedState: () => {}, savedNote: "Saved." },
+      sessions: { kind: "test", save: async () => "id", savedState: () => {}, savedNote: "Saved." },
     });
     expect(container.querySelector("#save-btn")).not.toBeNull();
+  });
+});
+
+describe("a saved session in this browser", () => {
+  const document = { olit_session: 1, session: {}, entries: [] } as any;
+  /** What the worker is asked to open for a page launched on save `id` of the store `kind`. */
+  async function opened(kind: string, id: string) {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ saved: { id, document } }),
+      sessions: { kind, save: async () => id, savedState: () => {}, savedNote: "Saved." },
+    });
+    return worker.sent[0]?.request?.saved;
+  }
+
+  // Galaxy encodes a chat's id and a visualization's alike, so two stores can give one id.
+  it("is known by its store as well as its id, so two stores' saves never share one", async () => {
+    expect(await opened("chat", "f2db41e1fa331b3e")).toEqual({
+      id: "chat/f2db41e1fa331b3e",
+      document,
+    });
+    container.replaceChildren();
+    expect(await opened("visualization", "f2db41e1fa331b3e")).toEqual({
+      id: "visualization/f2db41e1fa331b3e",
+      document,
+    });
+  });
+
+  it("is remembered by its store as well as its id once saved", async () => {
+    const worker = fakeWorker();
+    await mountOrbitBrowser(container, {
+      ...base,
+      createWorker: () => worker as unknown as Worker,
+      launch: async () => ({ historyId: "h1" }),
+      sessions: { kind: "chat", save: async () => "c1", savedState: () => {}, savedNote: "Saved." },
+    });
+    worker.say({ type: "ready", galaxy: { connected: true } } as unknown as WorkerMessage);
+    // One turn on screen, so there is something to save.
+    worker.say({
+      type: "events",
+      events: [
+        {
+          type: "snapshot",
+          entries: [{ kind: "pi.user", model: [{ role: "user", content: "hello" }] }],
+          usage: { models: {} },
+        },
+      ],
+    } as unknown as WorkerMessage);
+    container.querySelector<HTMLButtonElement>("#save-btn")!.click();
+    const exported = await vi.waitFor(() => {
+      const found = worker.sent.find((m) => m.type === "export");
+      if (!found) throw new Error("not exported yet");
+      return found;
+    });
+    worker.say({ type: "reply", id: exported.id, value: document });
+    const saved = await vi.waitFor(() => {
+      const found = worker.sent.find((m) => m.type === "saved");
+      if (!found) throw new Error("not saved yet");
+      return found;
+    });
+    expect(saved.savedId).toBe("chat/c1");
   });
 });
 

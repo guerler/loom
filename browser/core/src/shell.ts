@@ -65,6 +65,11 @@ export interface LaunchContext {
 
 /** Where a conversation is saved, when the flavor saves them: absent, the page offers no Save. */
 export interface SessionStore {
+  /**
+   * Names where saves go. Two stores can give the same id to different saves, so this browser knows
+   * a saved session by both.
+   */
+  kind: string;
   save(document: SessionDocument, id?: string): Promise<string>;
   /** Whether the conversation as it stands is saved, for a host that asks before closing. */
   savedState(saved: boolean): void;
@@ -228,6 +233,8 @@ export async function mountOrbitBrowser(
     return handle;
   }
   let savedId = launch.saved?.id;
+  /** What this browser knows a saved session by: its store and its id there. */
+  const keptAs = (id: string) => `${sessions?.kind ?? ""}/${id}`;
   /** The saved session shown from now on, said to the store when it changes. */
   function showing(id: string | undefined) {
     const changed = id !== savedId;
@@ -391,7 +398,7 @@ export async function mountOrbitBrowser(
     pyodideURL: options.pyodideURL,
     config: workerConfig(),
     placement: { historyId: launch.historyId, datasetId: config.dataset_id },
-    ...(launch.saved ? { saved: launch.saved } : {}),
+    ...(launch.saved ? { saved: { ...launch.saved, id: keptAs(launch.saved.id) } } : {}),
   };
 
   const confirm = createConfirm({
@@ -573,7 +580,7 @@ export async function mountOrbitBrowser(
       const document = await agent.export("");
       const id = await sessions!.save(document, savedId);
       showing(id);
-      await agent.saved(id, document);
+      await agent.saved(keptAs(id), document);
       save.textContent = "Saved";
       sessions!.savedState(true);
       info(sessions!.savedNote);
