@@ -1,5 +1,6 @@
-// GalaxyAI's brain protocol around Olit's lifecycle, against the stub's host page. A frame whose host
-// never answers says so rather than start on its own; the chat shown is reported from a click as
+// GalaxyAI's brain protocol around Olit's lifecycle, against the stub's host page. A frame that is
+// not GalaxyAI's chat runs Olit as a visualization; a chat whose host never answers says so rather
+// than start on its own; the chat shown is reported from a click as
 // from anywhere (WebKit names the parent as the sender of such messages, which the session's port
 // makes moot); unsaved changes are reported after the handshake and through asking, saving, a new
 // conversation and another chat opened; and a command that lands mid-answer leaves the question, not half an answer, and no
@@ -46,8 +47,15 @@ const ready = (frame) =>
 (async () => {
     const browser = await playwright[BROWSER].launch();
 
-    // A frame host that does not speak the protocol: the brain waits out initialize, then says so.
-    const silent = await machine(browser, `${HOST}?dataset_id=dlife&frame=1&host=none`);
+    // A frame Galaxy did not mount as its chat: Olit is a visualization of its own and asks no host.
+    const plain = await machine(browser, `${HOST}?dataset_id=dlife&frame=1`);
+    const plainReady = await ready(plain.frame);
+    const plainText = await plain.frame.locator("body").innerText();
+    check("a frame that is not GalaxyAI's chat runs Olit as a visualization of its own",
+        plainReady && !/GalaxyAI/.test(plainText), plainText.replace(/\s+/g, " ").slice(0, 200));
+
+    // A chat host that does not speak the protocol: the brain waits out initialize, then says so.
+    const silent = await machine(browser, `${HOST}?dataset_id=dlife&frame=1&view=chat&host=none`);
     const said = await silent.frame
         .locator("text=/could not connect to GalaxyAI/")
         .waitFor({ timeout: 30000 })
@@ -60,7 +68,7 @@ const ready = (frame) =>
     // A chat GalaxyAI held, for the host to open over a conversation with unsaved changes.
     const turns = [{ query: "Which aligner?", response: "HISAT2." }];
     await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
-    const { page, frame } = await machine(browser, `${HOST}?dataset_id=dlife&frame=1`);
+    const { page, frame } = await machine(browser, `${HOST}?dataset_id=dlife&frame=1&view=chat`);
     check("the hosted brain boots", await ready(frame));
     const unsaved = async () => (await hosted(page)).unsaved;
     check("nothing unsaved is reported once, right after the handshake", JSON.stringify(await unsaved()) === "[false]", JSON.stringify(await unsaved()));

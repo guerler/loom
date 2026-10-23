@@ -1,5 +1,5 @@
-/** A saved Olit session: one GalaxyAI chat, whose document is the whole session and whose turns
- * are what Galaxy lists and shows of it.
+/** Saves as GalaxyAI's chats, where Olit runs as GalaxyAI's chat: one chat, whose document is the
+ * whole session and whose turns are what Galaxy lists and shows of it.
  *
  * Saving is deliberate, as it was for GalaxyAI's own chats, so a save marks a point the user
  * asked for rather than a conversation turn.
@@ -13,6 +13,7 @@ import {
   type Galaxy,
   type SessionDocument,
 } from "@galaxyproject/orbit-browser";
+import type { Opened, Saves, Store } from "./store";
 
 /** Recorded on each turn Galaxy keeps, naming who held the conversation. */
 export const AGENT_TYPE = "olit";
@@ -117,66 +118,61 @@ export function heldSession(messages: readonly HeldMessage[], now = new Date()):
   };
 }
 
-/** A saved chat as Olit opens it. */
-export interface SavedChat {
-  document: SessionDocument;
-  /** Saved by Olit. A chat GalaxyAI held is not replaced: saving its continuation adds a chat. */
-  olit: boolean;
-}
+/** Said for a chat GalaxyAI held: Olit continues it, and saving adds a chat rather than replace it. */
+export const HELD_NOTE =
+  "This conversation was held by GalaxyAI before Olit: its questions and answers are here, " +
+  "the steps behind them are not. Saving keeps it as a new chat and leaves the original.";
 
-export interface SavedSessions {
-  /** The chat saved at `id`, or null if it is neither Olit's nor one GalaxyAI held. */
-  load(id: string): Promise<SavedChat | null>;
-  /** Create, or replace the chat at `id`, returning the chat's id. */
-  save(document: SessionDocument, id?: string): Promise<string>;
-}
-
-export function savedSessions(galaxy: Galaxy): SavedSessions {
-  async function create(payload: object): Promise<string> {
-    const created = await galaxy.post("api/chat/exchanges", payload);
-    return created.id;
-  }
-  return {
-    async load(id) {
-      // Galaxy answers only with the signed-in user's own chats.
-      const body = await galaxy.get(`api/chat/exchange/${segment(id)}/document`);
-      let found: SavedChat | null = null;
-      if (isSessionDocument(body?.document)) {
-        found = { document: body.document, olit: true };
-      } else if (body?.document === null) {
-        const messages: HeldMessage[] = await galaxy.get(
-          `api/chat/exchange/${segment(id)}/messages`,
-        );
-        found = { document: heldSession(messages), olit: false };
-      }
-      return found;
-    },
-    async save(document, id) {
-      const messages = turnsOf(document.entries);
-      if (!messages.length) {
-        throw new Error("there is nothing to save before the first question");
-      }
-      const payload = { agent_type: AGENT_TYPE, messages, document };
-      let saved: string;
-      if (id) {
-        // Galaxy replaces only a chat Olit saved; one it no longer has, or one GalaxyAI held,
-        // is saved as a new chat.
-        saved = await galaxy.put(`api/chat/exchange/${segment(id)}`, payload).then(
-          () => id,
-          (e) => {
-            if (e instanceof HttpError && e.status === 404) return create(payload);
-            throw e;
-          },
-        );
-      } else {
-        saved = await create(payload);
-      }
-      return saved;
-    },
-  };
-}
-
-/** Tells the Galaxy host whether this session is stored on the server. */
-export function reportSavedState(saved: boolean) {
-  window.parent?.postMessage({ from: "galaxy-visualization", visualization_saved: saved }, "*");
-}
+export const chats: Store = {
+  kind: "chat",
+  wording: {
+    savedNote: "Saved. Open it from GalaxyAI's chats on any device.",
+    label: "Save this conversation to GalaxyAI's chats to reopen it on any device",
+    keepHint: "Save it to GalaxyAI's chats to keep it.",
+    reopenHint: "To reopen a saved conversation, open it from GalaxyAI's chats.",
+  },
+  connect(galaxy: Galaxy): Saves {
+    async function create(payload: object): Promise<string> {
+      const created = await galaxy.post("api/chat/exchanges", payload);
+      return created.id;
+    }
+    return {
+      async load(id) {
+        // Galaxy answers only with the signed-in user's own chats.
+        const body = await galaxy.get(`api/chat/exchange/${segment(id)}/document`);
+        let found: Opened | null = null;
+        if (isSessionDocument(body?.document)) {
+          found = { document: body.document };
+        } else if (body?.document === null) {
+          const messages: HeldMessage[] = await galaxy.get(
+            `api/chat/exchange/${segment(id)}/messages`,
+          );
+          found = { document: heldSession(messages), held: { note: HELD_NOTE } };
+        }
+        return found;
+      },
+      async save(document, id) {
+        const messages = turnsOf(document.entries);
+        if (!messages.length) {
+          throw new Error("there is nothing to save before the first question");
+        }
+        const payload = { agent_type: AGENT_TYPE, messages, document };
+        let saved: string;
+        if (id) {
+          // Galaxy replaces only a chat Olit saved; one it no longer has, or one GalaxyAI held,
+          // is saved as a new chat.
+          saved = await galaxy.put(`api/chat/exchange/${segment(id)}`, payload).then(
+            () => id,
+            (e) => {
+              if (e instanceof HttpError && e.status === 404) return create(payload);
+              throw e;
+            },
+          );
+        } else {
+          saved = await create(payload);
+        }
+        return saved;
+      },
+    };
+  },
+};

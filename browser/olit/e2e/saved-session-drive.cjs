@@ -56,7 +56,7 @@ async function save(frame) {
     await fetch(`${STUB}/__script?name=plain`);
     const browser = await playwright[BROWSER].launch();
 
-    const first = await machine(browser, `${HOST}?dataset_id=dsaved&frame=1`);
+    const first = await machine(browser, `${HOST}?dataset_id=dsaved&frame=1&view=chat`);
     check("the first machine boots", first.ready);
     await say(first.frame, "remember the saved session marker");
     const known = new Set(Object.keys((await stored()).chats));
@@ -75,7 +75,7 @@ async function save(frame) {
 
     check("the brain reports the chat a save created", (await hosted(first.page)).active.at(-1) === id, JSON.stringify((await hosted(first.page)).active));
 
-    const second = await machine(browser, `${HOST}?exchange_id=${id}&frame=1`);
+    const second = await machine(browser, `${HOST}?exchange_id=${id}&frame=1&view=chat`);
     check("the second machine boots on the saved chat", second.ready);
     const text = await second.frame.locator("body").innerText();
     check(
@@ -103,7 +103,7 @@ async function save(frame) {
     // A chat GalaxyAI held before Olit: its turns, no session.
     const turns = [{ query: "Which aligner for RNA-seq?", response: "HISAT2 or STAR." }];
     await fetch(`${STUB}/__held?id=g1&turns=${encodeURIComponent(JSON.stringify(turns))}`);
-    const held = await machine(browser, `${HOST}?exchange_id=g1&frame=1`);
+    const held = await machine(browser, `${HOST}?exchange_id=g1&frame=1&view=chat`);
     const heldText = await held.frame.locator("body").innerText();
     check(
         "a chat GalaxyAI held opens from its questions and answers",
@@ -136,7 +136,7 @@ async function save(frame) {
     );
 
     // A chat Galaxy does not give this user: another user's, or one deleted.
-    const missing = await machine(browser, `${HOST}?exchange_id=gone&frame=1`);
+    const missing = await machine(browser, `${HOST}?exchange_id=gone&frame=1&view=chat`);
     const missingText = await missing.frame.locator("body").innerText();
     check(
         "a chat Galaxy does not give is said not to open, and a new conversation starts",
@@ -146,7 +146,7 @@ async function save(frame) {
     check("the brain reports that it shows no saved chat", (await hosted(missing.page)).active.at(-1) === null);
 
     // A question GalaxyAI hands over, asked in a new conversation.
-    const asked = await machine(browser, `${HOST}?question=${encodeURIComponent("count my datasets please")}&frame=1`);
+    const asked = await machine(browser, `${HOST}?question=${encodeURIComponent("count my datasets please")}&frame=1&view=chat`);
     const answered = await asked.frame
         .locator("text=Noted.")
         .last()

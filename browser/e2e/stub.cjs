@@ -253,17 +253,64 @@ const escapeAttr = (text) =>
 // What VisualizationFrame.vue builds in the browser, rendered here instead: the same
 // data-incoming, the same plugin href, so a built app resolves Pyodide the way it does
 // in a deployment rather than from the dev server. VisualizationDisplay.vue hands a plugin
-// opened on a dataset `{ dataset_id }`; GalaxyAI's chat hands it `{}`, `{ exchange_id }` for a
-// saved chat, or `{ question }`; with `host=none`, nothing, as a host that does not speak it.
+// opened on a dataset `{ dataset_id }` and nothing else: no history, and a title only for a
+// saved visualization. With `view=chat`, GalaxyAI's chat mounts it with `{ view: "chat" }` and
+// opens `{ exchange_id }` for a saved chat or asks `{ question }` over the brain protocol; with
+// `host=none` as well, nothing answers it, as a host that does not speak the protocol.
+/** GalaxyAI's side of the brain protocol in the host page, starting with `initial`. */
+function galaxyAi(params, initial) {
+    return [
+        // GalaxyAI's side of the brain protocol, written plainly: answer initialize, give the
+        // initial command once initialized, record what the brain reports, and let a drive give
+        // commands later through window.__command.
+        "  const brain = document.getElementById('galaxy_visualization').contentWindow;",
+        "  const record = (window.__galaxyAi = { active: [], answers: [], commands: [], unsaved: [] });",
+        "  let next = 1;",
+        "  let port;",
+        "  const send = (message) => port.postMessage(message);",
+        "  window.__command = (method, params) => { const id = 1000 + next++; record.commands.push({ id, method, params }); send({ jsonrpc: '2.0', id, method, params }); return id; };",
+        "  const receive = (m) => {",
+        `    if (m.method === 'initialized') window.__command(${JSON.stringify(initial.method)}, ${JSON.stringify(initial.params)});`,
+        "    else if (m.method === 'chat/activeChanged') record.active.push(m.params.exchange_id);",
+        "    else if (m.method === 'chat/unsavedChanged') record.unsaved.push(m.params.unsaved);",
+        "    else if (m.id !== undefined && !m.method) record.answers.push(m);",
+        "  };",
+        // The handshake on the window, answered into the frame with the session's port. WebKit
+        // names this window as the source of some of the frame's messages.
+        // `host=none`: a host that mounts the chat but never answers the protocol.
+        `  if (${params.get("host") !== "none"}) window.addEventListener('message', (event) => {`,
+        "    const m = event.data;",
+        "    if ((event.source !== brain && event.source !== window) || event.origin !== window.location.origin || m?.jsonrpc !== '2.0' || m.method !== 'initialize') return;",
+        "    const channel = new MessageChannel();",
+        "    port = channel.port1;",
+        "    port.onmessage = (e) => receive(e.data);",
+        `    brain.postMessage({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, hostInfo: { name: 'stub', version: '0' }, capabilities: { chat: { unsaved: {} } } } }, window.location.origin, [channel.port2]);`,
+        "  });",
+    ];
+}
+
 function hostPage(url) {
     const params = new URL(url, "http://127.0.0.1:8099").searchParams;
     const datasetId = params.get("dataset_id");
     const exchangeId = params.get("exchange_id");
     const question = params.get("question");
+    const asChat = params.get("view") === "chat";
+    // A saved one opens on its latest revision's config, with its id for the owner (u1).
+    const saved = asChat ? undefined : visualizations.get(params.get("visualization_id"));
     const incoming = {
         root: "http://127.0.0.1:8099/",
-        visualization_config: datasetId ? { dataset_id: datasetId } : {},
+        visualization_config: asChat
+            ? { ...(datasetId ? { dataset_id: datasetId } : {}), view: "chat" }
+            : saved
+              ? saved.latest_revision.config
+              : datasetId
+                ? { dataset_id: datasetId }
+                : {},
         visualization_plugin: pluginDict(),
+        // With `incoming_id=0` the id is only in the page's own query.
+        ...(saved && params.get("incoming_id") !== "0"
+            ? { visualization_id: saved.id, visualization_title: saved.title }
+            : {}),
     };
     // GalaxyAI's first command once the brain has initialized: a saved chat, a question, or the
     // brain's own choice.
@@ -283,32 +330,7 @@ function hostPage(url) {
             "  app.id = 'app';",
             `  app.setAttribute('data-incoming', JSON.stringify({ ...${JSON.stringify(incoming)}, root: window.location.origin + '/', visualization_plugin: plugin }));`,
             "  doc.body.appendChild(app);",
-            // GalaxyAI's side of the brain protocol, written plainly: answer initialize, give the
-            // initial command once initialized, record what the brain reports, and let a drive give
-            // commands later through window.__command.
-            "  const brain = document.getElementById('galaxy_visualization').contentWindow;",
-            "  const record = (window.__galaxyAi = { active: [], answers: [], commands: [], unsaved: [] });",
-            "  let next = 1;",
-            "  let port;",
-            "  const send = (message) => port.postMessage(message);",
-            "  window.__command = (method, params) => { const id = 1000 + next++; record.commands.push({ id, method, params }); send({ jsonrpc: '2.0', id, method, params }); return id; };",
-            "  const receive = (m) => {",
-            `    if (m.method === 'initialized') window.__command(${JSON.stringify(initial.method)}, ${JSON.stringify(initial.params)});`,
-            "    else if (m.method === 'chat/activeChanged') record.active.push(m.params.exchange_id);",
-            "    else if (m.method === 'chat/unsavedChanged') record.unsaved.push(m.params.unsaved);",
-            "    else if (m.id !== undefined && !m.method) record.answers.push(m);",
-            "  };",
-            // The handshake on the window, answered into the frame with the session's port. WebKit
-            // names this window as the source of some of the frame's messages.
-            // `host=none`: a frame host that does not speak the protocol, as a visualization's.
-            `  if (${params.get("host") !== "none"}) window.addEventListener('message', (event) => {`,
-            "    const m = event.data;",
-            "    if ((event.source !== brain && event.source !== window) || event.origin !== window.location.origin || m?.jsonrpc !== '2.0' || m.method !== 'initialize') return;",
-            "    const channel = new MessageChannel();",
-            "    port = channel.port1;",
-            "    port.onmessage = (e) => receive(e.data);",
-            `    brain.postMessage({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, hostInfo: { name: 'stub', version: '0' }, capabilities: { chat: { unsaved: {} } } } }, window.location.origin, [channel.port2]);`,
-            "  });",
+            ...(asChat ? galaxyAi(params, initial) : []),
             "  const attr = plugin.entry_point.attr;",
             "  const script = doc.createElement('script');",
             "  script.type = attr.type || 'module';",
@@ -390,6 +412,13 @@ const server = http.createServer(async (req, res) => {
     if (url.startsWith("/__pages")) return json(res, 200, { pages: [...pages.values()] });
     if (url.startsWith("/__visualizations")) return json(res, 200, { visualizations: [...visualizations.values()], writes: visualizationWrites });
     if (url.startsWith("/__chats")) return json(res, 200, { chats: Object.fromEntries(chats), writes: chatWrites });
+    // Hand a saved visualization to another owner, or to none, as sharing it with this user leaves it.
+    if (url.startsWith("/__owner")) {
+        const params = new URL(url, "http://x").searchParams;
+        const found = visualizations.get(params.get("id"));
+        if (found) found.user_id = params.get("user_id") || undefined;
+        return json(res, 200, { owner: found?.user_id ?? null });
+    }
     // A chat GalaxyAI held before Olit: its turns, and no document.
     if (url.startsWith("/__held")) {
         const params = new URL(url, "http://x").searchParams;

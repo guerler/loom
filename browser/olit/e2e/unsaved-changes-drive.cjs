@@ -7,7 +7,7 @@ const storedProvider = require("./stored-provider.cjs");
 const BROWSER = process.env.BROWSER || "chromium";
 const STUB = "http://127.0.0.1:8099";
 // Galaxy launches Olit on a dataset; the history is the one holding it.
-const HOST = `${STUB}/plugins/visualizations/olit?dataset_id=e2edataset0002&frame=1`;
+const HOST = `${STUB}/plugins/visualizations/olit?dataset_id=e2edataset0002&frame=1&view=chat`;
 
 let failed = 0;
 function check(name, ok, detail) {

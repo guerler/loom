@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chatStore } from "./agent/fake-chats";
+import { chatStore } from "../agent/fake-chats";
 import { connectGalaxy } from "@galaxyproject/orbit-browser/testing";
 import { SCHEMA, type SessionDocument } from "@galaxyproject/orbit-browser/agent";
-import { AGENT_TYPE, heldSession, reportSavedState, savedSessions, turnsOf } from "./saved-session";
+import { AGENT_TYPE, chats, HELD_NOTE, heldSession, turnsOf } from "./chats";
 
 const document = (): SessionDocument => ({
   olit_session: SCHEMA,
@@ -31,7 +31,7 @@ function fakeGalaxy() {
     "fetch",
     vi.fn(async (request: Request) => (await answer(request))!),
   );
-  return { rows, saved: savedSessions(connectGalaxy({ root: "http://galaxy/" })) };
+  return { rows, saved: chats.connect(connectGalaxy({ root: "http://galaxy/" })) };
 }
 
 describe("a saved Olit chat", () => {
@@ -50,7 +50,7 @@ describe("a saved Olit chat", () => {
   it("reads back what was saved, as Olit's", async () => {
     const { saved } = fakeGalaxy();
     const id = await saved.save(document());
-    expect(await saved.load(id)).toEqual({ document: document(), olit: true });
+    expect(await saved.load(id)).toEqual({ document: document() });
   });
 
   it("replaces the chat it was opened from", async () => {
@@ -81,7 +81,7 @@ describe("a saved Olit chat", () => {
       document: null,
     });
     const opened = (await saved.load("g1"))!;
-    expect(opened.olit).toBe(false);
+    expect(opened.held).toEqual({ note: HELD_NOTE });
     expect(turnsOf(opened.document.entries)).toEqual([{ query: "q", response: "r" }]);
   });
 
@@ -102,7 +102,7 @@ describe("a saved Olit chat", () => {
       vi.fn(async () => new Response("boom", { status: 500 })),
     );
     await expect(
-      savedSessions(connectGalaxy({ root: "http://galaxy/" })).save(document()),
+      chats.connect(connectGalaxy({ root: "http://galaxy/" })).save(document()),
     ).rejects.toThrow(/500/);
   });
 });
@@ -142,32 +142,5 @@ describe("heldSession", () => {
     expect(held.session.turn).toBe(1);
     expect(held.entries.map((e) => e.kind)).toEqual(["pi.user", "pi.assistant"]);
     expect(held.entries[1]!.model![0]).toMatchObject({ provider: "galaxy-ai", model: "router" });
-  });
-});
-
-describe("reportSavedState", () => {
-  /** Galaxy listens on the window that owns the iframe, so a report to our own window is lost. */
-  function fakeParent() {
-    const postMessage = vi.fn();
-    Object.defineProperty(window, "parent", { value: { postMessage }, configurable: true });
-    return postMessage;
-  }
-
-  it("tells the embedding window that a turn left the session unsaved", () => {
-    const postMessage = fakeParent();
-    reportSavedState(false);
-    expect(postMessage).toHaveBeenCalledWith(
-      { from: "galaxy-visualization", visualization_saved: false },
-      "*",
-    );
-  });
-
-  it("tells the embedding window that a save stored the session", () => {
-    const postMessage = fakeParent();
-    reportSavedState(true);
-    expect(postMessage).toHaveBeenCalledWith(
-      { from: "galaxy-visualization", visualization_saved: true },
-      "*",
-    );
   });
 });

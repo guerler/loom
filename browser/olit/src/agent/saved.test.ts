@@ -13,7 +13,8 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { savedSessions } from "../saved-session";
+import { chats, HELD_NOTE } from "../stores/chats";
+import { title } from "../stores/visualizations";
 import { Binding, json, text } from "@galaxyproject/orbit-browser/testing";
 import { chatStore } from "./fake-chats";
 import { olitFlavor } from "./flavor";
@@ -50,7 +51,7 @@ function world() {
       json(request.url.endsWith("api/version") ? { version_major: "26.1" } : {})
     );
   });
-  return { rows, requests, saved: savedSessions(connectGalaxy({ root: ROOT })) };
+  return { rows, requests, saved: chats.connect(connectGalaxy({ root: ROOT })) };
 }
 
 const CHART = { kind: "vega-lite", title: "counts", spec: { mark: "bar" } };
@@ -226,6 +227,15 @@ describe("a saved Olit visualization is a restorable conversation", () => {
     expect(build?.commit).toMatch(/^[0-9a-f]{7,}$/);
   });
 
+  it("names a new conversation after itself, so two of them are told apart", async () => {
+    world();
+    const one = await machine();
+    const a = title(await one.export(await one.create({})));
+    const b = title(await one.export(await one.create({})));
+    expect(a).toMatch(/^Olit Session \([0-9a-f]{8}\)$/);
+    expect(a).not.toEqual(b);
+  });
+
   it("continues a chat GalaxyAI held from its questions and answers, and saves it as a new chat", async () => {
     const { rows, requests, saved } = world();
     rows.set("g1", {
@@ -234,7 +244,7 @@ describe("a saved Olit visualization is a restorable conversation", () => {
       document: null,
     });
     const opened = (await saved.load("g1"))!;
-    expect(opened.olit).toBe(false);
+    expect(opened.held).toEqual({ note: HELD_NOTE });
 
     const one = await machine();
     const continued = await one.open({ ...opened.document, history_id: "h1" }, "g1");
